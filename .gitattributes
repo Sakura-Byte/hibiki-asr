@@ -1,0 +1,7 @@
+* text=auto
+# Scripts and Docker files run on Linux, and the lockfiles are hashed: keep their line endings as committed
+# even when a Windows checkout would convert them.
+*.sh text eol=lf
+docker/* text eol=lf
+.dockerignore text eol=lf
+src/hibiki_asr/provision/lockfiles/*.txt text eol=lf

@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e ".[runtime,dev]"
+      - name: ruff
+        run: uv run --no-sync ruff check .
+      # Python 3.10 caps numpy at 2.2, whose stubs want explicit type arguments for ndarray: mypy reports 21
+      # annotation errors there that 3.11+ does not, so the types are checked on the current Python only.
+      - name: mypy
+        if: matrix.python == '3.12'
+        run: uv run --no-sync mypy
+      - name: pytest
+        run: uv run --no-sync pytest -q
+
+  openapi:
+    name: openapi.json is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          uv venv
+          uv pip install -e ".[runtime]"
+      - name: Regenerate openapi.json
+        run: uv run --no-sync python scripts/export_openapi.py
+      - name: Fail if it changed
+        run: git diff --exit-code -- openapi.json
+
+  scripts:
+    name: install script and compose file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck install.sh
+      - name: docker compose config
+        run: |
+          for profile in cpu cuda rocm; do
+            HIBIKI_ASR_TOKEN=ci docker compose -f docker/compose.example.yml --profile "$profile" config --quiet
+          done
+
+  docker:
+    name: docker build (${{ matrix.tag }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: cpu
+            dockerfile: docker/Dockerfile.cpu
+          - tag: cuda
+            dockerfile: docker/Dockerfile.cuda
+    steps:
+      - uses: actions/checkout@v4
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (this runs `hibiki-asr setup` inside the image)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: hibiki-asr:ci-${{ matrix.tag }}
+      - name: The engine refuses to start without a token
+        run: |
+          if docker run --rm hibiki-asr:ci-${{ matrix.tag }}; then
+            echo "the container started without HIBIKI_ASR_TOKEN" >&2
+            exit 1
+          fi
+      - name: The engine becomes healthy
+        run: |
+          docker run -d --name engine -e HIBIKI_ASR_TOKEN=ci -p 8001:8001 hibiki-asr:ci-${{ matrix.tag }}
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8001/v1/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs engine
+          exit 1
+      - name: What the engine sees
+        run: docker exec engine hibiki-asr doctor

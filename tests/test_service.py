@@ -313,7 +313,8 @@ def test_service_install_dry_run_touches_nothing(linux, commands, capsys) -> Non
 def test_service_install_passes_the_config_file_to_serve(linux, commands, capsys, tmp_path: Path) -> None:
     config = tmp_path / "my.toml"
     assert run(capsys, "--config", str(config), "service", "install")[0] == 0
-    assert f"--config {config.resolve()} serve" in linux.read_text(encoding="utf-8")
+    unit = render_systemd_unit(("/home/me/.local/bin/hibiki-asr", "--config", str(config.resolve()), "serve"))
+    assert linux.read_text(encoding="utf-8") == unit  # the path is quoted for systemd, whatever the platform
 
 
 def test_service_uninstall_removes_the_unit(linux, commands, capsys) -> None:
