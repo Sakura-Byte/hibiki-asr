@@ -1,0 +1,15 @@
+# The images are built from the repository root (`docker build -f docker/Dockerfile.<x> .`), and only the
+# package sources are needed.
+.git
+.github
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+dist
+build
+tests
+models
+hibiki-asr-data

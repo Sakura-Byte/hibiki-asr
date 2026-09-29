@@ -38,6 +38,7 @@ dev = [
   "pytest-cov>=5",
   "ruff>=0.6",
   "mypy>=1.11",
+  "pyyaml>=6",  # tests read the compose file and the workflows
   "transformers>=4.40",  # golden tests only: reference WhisperFeatureExtractor (numpy path, no torch)
 ]
 

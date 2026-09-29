@@ -1,0 +1,83 @@
+# Example Docker Compose file for hibiki-asr. Copy it, then start ONE of the three profiles:
+#
+#   export HIBIKI_ASR_TOKEN="$(openssl rand -hex 24)"     # required: the engine listens on the network
+#   docker compose -f docker/compose.example.yml --profile cpu  up -d     # any machine
+#   docker compose -f docker/compose.example.yml --profile cuda up -d     # NVIDIA GPU
+#   docker compose -f docker/compose.example.yml --profile rocm up -d     # AMD GPU, experimental (see below)
+#
+# Then download a model into the data volume and point Hibiki at http://<this host>:8001 with that token:
+#
+#   docker compose -f docker/compose.example.yml exec hibiki-asr-cpu hibiki-asr models sources
+#   docker compose -f docker/compose.example.yml exec hibiki-asr-cpu hibiki-asr models download chickenrice@v2
+#   docker compose -f docker/compose.example.yml exec hibiki-asr-cpu hibiki-asr doctor
+#
+# (use the service name of the profile you started: hibiki-asr-cuda, hibiki-asr-rocm.)
+# All profiles publish port 8001, so start only one at a time.
+
+name: hibiki-asr
+
+x-engine: &engine
+  restart: unless-stopped
+  init: true # reaps the worker processes the engine starts and forwards SIGTERM
+  stop_grace_period: 30s
+  ports:
+    - "8001:8001"
+  environment:
+    # Required. Without it the engine refuses to start, because it listens on 0.0.0.0 inside the container.
+    HIBIKI_ASR_TOKEN: ${HIBIKI_ASR_TOKEN:?set HIBIKI_ASR_TOKEN to a long random string}
+    # Optional, any setting is HIBIKI_ASR_<NAME> (see `hibiki-asr config show`), for example:
+    # HIBIKI_ASR_HF_ENDPOINT: https://hf-mirror.com     # where models are downloaded from
+    # HIBIKI_ASR_DEVICE: cpu                            # force the CPU on a GPU image
+  volumes:
+    - hibiki-asr-data:/data # models and state; owned by uid 10001 (with a bind mount, chown it to that)
+    # To adopt model files you already have instead of downloading them, mount their folder and import it:
+    #   - /path/to/upstream/models:/import:ro
+    #   docker compose ... exec <service> hibiki-asr models import /import/<folder> --model chickenrice@v2
+
+services:
+  # --- CPU: works everywhere; a large model runs slower than real time --------------------------------
+  hibiki-asr-cpu:
+    <<: *engine
+    profiles: [cpu]
+    image: ghcr.io/sakura-byte/hibiki-asr:latest-cpu
+    # build: { context: .., dockerfile: docker/Dockerfile.cpu }   # to build it yourself instead
+
+  # --- NVIDIA CUDA 12: needs an NVIDIA driver (525+) and the NVIDIA Container Toolkit on the host ---------
+  hibiki-asr-cuda:
+    <<: *engine
+    profiles: [cuda]
+    image: ghcr.io/sakura-byte/hibiki-asr:latest-cuda
+    # build: { context: .., dockerfile: docker/Dockerfile.cuda }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Recent Compose versions also accept the short form instead of the block above:
+    # gpus: all
+
+  # --- AMD ROCm: EXPERIMENTAL, not verified on any AMD GPU ------------------------------------------------
+  # There is no published image with a working ROCm runtime yet: the ROCm build of CTranslate2 has to be supplied
+  # by you when building docker/Dockerfile.rocm (see the header of that file). The devices below are what a ROCm
+  # container needs (`doctor` names them when they are missing).
+  hibiki-asr-rocm:
+    <<: *engine
+    profiles: [rocm]
+    image: ghcr.io/sakura-byte/hibiki-asr:latest-rocm
+    # build:
+    #   context: ..
+    #   dockerfile: docker/Dockerfile.rocm
+    #   args: { CT2_ROCM_WHEEL: "https://...whl", CT2_ROCM_SHA256: "...", ROCM_IMAGE: "rocm/dev-ubuntu-22.04:7.2.4" }
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    security_opt:
+      - seccomp=unconfined
+
+volumes:
+  hibiki-asr-data:
