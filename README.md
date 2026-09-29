@@ -21,9 +21,29 @@ Both use an ASMR-tuned voice activity detector, smart 30 s chunking and repetiti
 ## Quick start
 
 ```bash
-# CPU runtime (any machine). GPU runtimes are covered below.
-uv tool install "hibiki-asr[runtime] @ git+https://github.com/Sakura-Byte/hibiki-asr"
+# Linux
+curl -LsSf https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/install.sh | bash
+```
 
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/install.ps1 | iex
+```
+
+The script installs [uv](https://docs.astral.sh/uv/) if it is missing, installs the engine as a uv tool, runs
+`hibiki-asr setup --variant auto` (which picks the runtime for your hardware and says why) and prints the next steps.
+No sudo. Run it again any time; `HIBIKI_ASR_REF=v0.1.0` pins a tag, branch or commit.
+
+By hand, in any Python environment:
+
+```bash
+uv tool install "hibiki-asr[runtime] @ git+https://github.com/Sakura-Byte/hibiki-asr"
+hibiki-asr setup                       # installs the runtime for this machine into the same environment
+```
+
+Then:
+
+```bash
 hibiki-asr doctor                      # what hardware was found, which device will be used, and why
 hibiki-asr models sources              # can Hugging Face be reached directly? which mirror is best?
 hibiki-asr models download chickenrice@v2
@@ -33,6 +53,59 @@ hibiki-asr serve                       # listens on http://127.0.0.1:8001
 Then in Hibiki: *Admin → AI → Local engine*, endpoint `http://127.0.0.1:8001`.
 On loopback no token is needed. Listening on any other address **requires** a token
 (`HIBIKI_ASR_TOKEN`), and the engine refuses to start without one.
+
+**Start it automatically:** `hibiki-asr service install` (also `uninstall`, `status`). On Linux it writes a systemd
+*user* unit (`~/.config/systemd/user/hibiki-asr.service`) and enables it; run `loginctl enable-linger $USER` to keep it
+running when you are logged out. On Windows it creates a Task Scheduler task that starts the engine when you log on
+and does not restart it if it crashes. macOS has no service support yet: run `hibiki-asr serve`.
+
+**Update:** `hibiki-asr update` upgrades the engine (`uv tool upgrade`, or `pip install --upgrade` from where it was
+installed; a source checkout is refused), re-applies the runtime when its pinned versions changed, and tells you to
+restart the engine. `hibiki-asr setup --dry-run` and `service install --dry-run` print what they would do.
+
+## Runtime variants
+
+`hibiki-asr setup` installs one pinned, hash-checked set of packages
+([`provision/lockfiles`](src/hibiki_asr/provision/lockfiles), compiled by `scripts/compile_lockfiles.py`) with
+`uv pip install` (or `python -m pip` when uv is missing), records the choice, and prints the `doctor` report so you see
+at once whether the GPU is usable. `--variant auto` (the default) follows the hardware; an *experimental* variant is
+never chosen for you and needs `--allow-experimental`.
+
+| Variant | For | Status |
+|---|---|---|
+| `cpu` | any machine (macOS: only Apple Silicon on macOS 14+, the pinned onnxruntime has no other wheel; not tried) | works; installed for real on Linux with Python 3.10 to 3.13 |
+| `cuda12` | NVIDIA, driver 525+, Pascal (RTX 10 series) to Ada (RTX 40) | pins installed for real on Linux (Python 3.11, 3.12) and the CUDA libraries load; **never run on a GPU** |
+| `cuda12-blackwell` | NVIDIA RTX 50 | experimental: the CTranslate2 wheel has no Blackwell kernels (only PTX for `compute_86`), so it relies on the driver's JIT |
+| `cuda11` | older NVIDIA | **no pins**: faster-whisper 1.x needs ctranslate2 4.x, which on PyPI is built for CUDA 12 |
+| `rocm-linux`, `rocm-win-gfx*` | AMD | **no pins, not verified**: CTranslate2's ROCm wheels are GitHub release assets, and the release page could not be reached, so no URL or hash could be checked |
+
+`setup --variant rocm-linux` refuses and prints this. `docker/Dockerfile.rocm` is an experimental scaffold that only
+builds if you supply a wheel yourself (see its header). Nothing about ROCm is claimed to work.
+
+What was checked while building this, and what was not:
+
+* **Checked:** the pins resolve, and every wheel exists, for Linux x86_64 and Windows on Python 3.10 to 3.13; real
+  installs, and switches cpu ↔ cuda12, through uv and through the pip fallback; that the CUDA libraries installed by pip
+  are found only once `hibiki-asr` puts them on `LD_LIBRARY_PATH`/`PATH` (it does, for its own worker); `install.sh`
+  end to end from GitHub; `update` on a uv tool; the systemd unit with `systemd-analyze verify`; the Dockerfiles with
+  hadolint, the compose file with `docker compose config`, the workflows with actionlint.
+* **Not checked:** any GPU, CUDA or ROCm (there was none); Windows (`install.ps1`, the scheduled task, CUDA DLL
+  lookup); macOS; building a Docker image (no Docker daemon); running the GitHub workflows.
+
+## Docker
+
+```bash
+export HIBIKI_ASR_TOKEN="$(openssl rand -hex 24)"
+docker compose -f docker/compose.example.yml --profile cuda up -d      # or --profile cpu
+docker compose -f docker/compose.example.yml exec hibiki-asr-cuda hibiki-asr models download chickenrice@v2
+```
+
+`docker/compose.example.yml` has `cpu`, `cuda` and `rocm` profiles, the required token, a named volume for `/data` and
+port 8001. Images are `ghcr.io/sakura-byte/hibiki-asr:<version>-cpu` and `-cuda` (plus `latest-*`), published by the
+release workflow when a `v*` tag is pushed; until then build them: `docker build -f docker/Dockerfile.cuda -t hibiki-asr:cuda .`.
+Each image runs the same `hibiki-asr setup --variant <id> --yes` as a bare-metal install, as a non-root user, with
+models in `/data`. An NVIDIA image needs the NVIDIA Container Toolkit on the host (`doctor` says so when the GPU was
+not passed in).
 
 ## Choosing a download source (Hugging Face mirror)
 
@@ -66,6 +139,17 @@ hibiki-asr models verify chickenrice@v2        # re-hash the files
 hibiki-asr models delete chickenrice@v2
 hibiki-asr models refresh                      # fetch a newer catalog (new model versions)
 ```
+
+Model files you already have (say, the `models/` folder of the upstream project) need not be downloaded again:
+
+```bash
+hibiki-asr models import ~/upstream/models/whisper-large-v2-translate-zh-v0.2-st-ct2 --model chickenrice@v2
+hibiki-asr models import ~/upstream/models/Whisper-Vad-EncDec-ASMR-onnx --model vad-asr@1     # a component
+```
+
+Every file the catalog lists for that version is checked (size and sha256) before anything is installed; one wrong file
+rejects the import and installs nothing. The files are copied (`--move` takes them out of the folder instead), and a
+later `models download` fetches only what is still missing.
 
 The catalog pins every file to a Hugging Face commit and sha256. To use your own model, add it to
 `catalog.local.toml` next to the config file (see `hibiki-asr config path`):
@@ -161,11 +245,15 @@ within an `api_version`; `GET /v1/version` lists `capabilities` clients can rely
 
 ```bash
 uv venv && uv pip install -e ".[runtime,dev]"
-.venv/bin/pytest                          # ~250 tests, none needs a GPU or a model
+.venv/bin/pytest                          # ~450 tests, none needs a GPU, a model or installs anything
 .venv/bin/ruff check . && .venv/bin/mypy
 python scripts/export_openapi.py          # after changing the API; commit openapi.json
 python scripts/build_catalog.py           # after adding a model version; pins revision + sha256 from Hugging Face
+python scripts/compile_lockfiles.py       # after changing requirements/<variant>.in; needs uv and network access
 ```
+
+Adding a runtime variant is a row in `provision/variants.toml`, a `requirements/<id>.in` and its lockfile. CI (ruff,
+mypy, pytest on Linux and Windows, `openapi.json` up to date, the Docker images) is in `.github/workflows`.
 
 ## License
 
