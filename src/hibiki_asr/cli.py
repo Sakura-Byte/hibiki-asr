@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import shutil
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -26,6 +28,15 @@ from .provision.install import (
     execute,
 )
 from .provision.pins import lockfile_path, lockfile_sha256
+from .provision.service import (
+    ACTIONS,
+    ServiceUnsupported,
+    apply_plan,
+    describe,
+    engine_argv,
+    plan_service,
+    windows_user,
+)
 from .provision.state import read_lockfile_sha256, read_variant, write_variant
 from .settings import Settings, config_file_path, load_settings, write_config_value
 
@@ -154,6 +165,33 @@ def _setup(args: argparse.Namespace, settings: Settings, engine: Engine) -> int:
     diagnostics = engine.diagnostics(refresh=True)
     print(format_report(diagnostics))
     return 1 if any(f.severity.value == "error" for f in diagnostics.findings) else 0
+
+
+# -- service ---------------------------------------------------------------------------------------------
+
+
+def cmd_service(args: argparse.Namespace, settings: Settings) -> int:
+    config = args.config.resolve() if args.config else None
+    try:
+        plan = plan_service(
+            args.action,
+            _platform(),
+            engine_argv(shutil.which, sys.executable, config),
+            config_home=Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"),
+            data_dir=settings.data_dir,
+            user=windows_user(os.environ),
+        )
+    except ServiceUnsupported as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print("\n".join(describe(plan)))
+        print("Dry run: nothing was changed.")
+        return 0
+    code = apply_plan(plan, command_runner)
+    if code == 0 and args.action != "status":
+        print("\n".join(plan.notes))
+    return code
 
 
 # -- config ----------------------------------------------------------------------------------------------
@@ -358,6 +396,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="do nothing when this runtime was already installed from the current lockfile (used by `update`)",
     )
 
+    service = sub.add_parser(
+        "service",
+        help="start the engine automatically (systemd user unit on Linux, Task Scheduler on Windows)",
+    )
+    service.add_argument("action", choices=ACTIONS)
+    service.add_argument("--dry-run", action="store_true", help="print the file and commands, change nothing")
+
     config = sub.add_parser("config", help="show or change settings")
     config.add_argument("action", choices=["show", "path", "set"])
     config.add_argument("key", nargs="?")
@@ -389,6 +434,7 @@ _COMMANDS = {
     "serve": cmd_serve,
     "doctor": cmd_doctor,
     "setup": cmd_setup,
+    "service": cmd_service,
     "config": cmd_config,
     "models": cmd_models,
 }
