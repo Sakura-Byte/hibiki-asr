@@ -35,9 +35,11 @@ from .provision.service import (
     describe,
     engine_argv,
     plan_service,
+    restart_hint,
     windows_user,
 )
-from .provision.state import read_lockfile_sha256, read_variant, write_variant
+from .provision.state import read_lockfile_sha256, read_variant, variant_from_env, write_variant
+from .provision.update import UpdateRefused, detect_source, plan_update, read_direct_url
 from .settings import Settings, config_file_path, load_settings, write_config_value
 
 _SECRETS = ("token", "hf_token")
@@ -165,6 +167,56 @@ def _setup(args: argparse.Namespace, settings: Settings, engine: Engine) -> int:
     diagnostics = engine.diagnostics(refresh=True)
     print(format_report(diagnostics))
     return 1 if any(f.severity.value == "error" for f in diagnostics.findings) else 0
+
+
+# -- update ----------------------------------------------------------------------------------------------
+
+
+def cmd_update(args: argparse.Namespace, settings: Settings) -> int:
+    if variant_from_env():
+        print(
+            "error: HIBIKI_ASR_VARIANT is set, as it is in the Docker images. A container is updated by "
+            "pulling a newer image, not from inside.",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        installer = detect_installer(sys.executable)
+        source = detect_source(Path(sys.prefix), read_direct_url())
+        plan = plan_update(
+            source,
+            installer,
+            read_variant(settings.data_dir),
+            config=args.config.resolve() if args.config else None,
+        )
+    except (UpdateRefused, InstallerMissing) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    commands = [plan.upgrade, *([plan.setup] if plan.setup else [])]
+    print("Commands:")
+    for command in commands:
+        print(f"  {command.display()}")
+    for note in plan.notes:
+        print(note)
+    if args.dry_run:
+        print("Dry run: nothing was changed.")
+        return 0
+
+    for command in commands:
+        print(f"+ {command.display()}")
+        code = command_runner(command.argv)
+        if code != 0:
+            print(f"error: the command exited with status {code}", file=sys.stderr)
+            if command is plan.setup:
+                print(
+                    "The engine itself was upgraded. Fix the problem above and run "
+                    "`hibiki-asr setup --variant <id> --yes` again (see `hibiki-asr doctor`).",
+                    file=sys.stderr,
+                )
+            return code
+    print(restart_hint(_platform()))
+    return 0
 
 
 # -- service ---------------------------------------------------------------------------------------------
@@ -403,6 +455,11 @@ def build_parser() -> argparse.ArgumentParser:
     service.add_argument("action", choices=ACTIONS)
     service.add_argument("--dry-run", action="store_true", help="print the file and commands, change nothing")
 
+    update = sub.add_parser(
+        "update", help="upgrade the engine, and its runtime when the pinned versions changed"
+    )
+    update.add_argument("--dry-run", action="store_true", help="print the commands and change nothing")
+
     config = sub.add_parser("config", help="show or change settings")
     config.add_argument("action", choices=["show", "path", "set"])
     config.add_argument("key", nargs="?")
@@ -435,6 +492,7 @@ _COMMANDS = {
     "doctor": cmd_doctor,
     "setup": cmd_setup,
     "service": cmd_service,
+    "update": cmd_update,
     "config": cmd_config,
     "models": cmd_models,
 }
