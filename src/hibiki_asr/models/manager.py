@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import threading
 import time
 import uuid
@@ -15,6 +16,7 @@ from pathlib import Path
 import httpx
 
 from ..settings import Settings, default_config_dir
+from .adopt import find_problems, stage_files
 from .catalog import (
     Catalog,
     CatalogError,
@@ -76,6 +78,14 @@ class Unprocessable(ModelsError):
 
 class ModelNotInstalled(Conflict):
     """The requested model (or one of its components) is not installed."""
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    ref: Ref
+    files: int
+    size_bytes: int
+    moved: bool
 
 
 @dataclass(frozen=True)
@@ -428,10 +438,7 @@ class ModelManager:
                     self._store.commit(ref, item)
                     finished_bytes += item.total_size or 0
 
-            if self._store.active(entry.id) is None:
-                self._store.set_active(
-                    entry.id, spec.version
-                )  # the first installed version becomes the active one
+            self._activate_if_first(entry, spec)
             status.state, status.stage, status.bytes_per_second = DownloadState.succeeded, "done", 0.0
             if status.bytes_total is not None:
                 status.bytes_done = status.bytes_total
@@ -446,6 +453,69 @@ class ModelManager:
                 f"{type(exc).__name__}: {exc}",
                 0.0,
             )
+
+    def _activate_if_first(self, entry: Entry, spec: VersionSpec) -> None:
+        """The first installed version of a model becomes the active one."""
+        if entry.kind == "model" and self._store.active(entry.id) is None:
+            self._store.set_active(entry.id, spec.version)
+
+    # -- import ---------------------------------------------------------------------------------------------
+
+    def import_version(
+        self,
+        ref: Ref,
+        source: Path,
+        *,
+        move: bool = False,
+        on_file: Callable[[str], None] | None = None,
+    ) -> ImportResult:
+        """Adopt files that are already on disk (say, another tool's model folder) instead of downloading them.
+
+        Every file the catalog lists for ``ref`` must be in ``source`` with the pinned size and sha256. All of
+        them are checked first: one wrong file rejects the import and nothing is installed. Then the files go
+        through the same staging directory and atomic rename as a download, and the first installed version of
+        a model becomes the active one. The files are copied, or with ``move`` taken out of ``source``.
+        """
+        try:
+            entry, spec = self._catalog.resolve(ref)
+        except KeyError:
+            raise NotFound("VERSION_NOT_FOUND", f"unknown model version {ref}") from None
+        if self._busy(ref):
+            raise Conflict("DOWNLOAD_IN_PROGRESS", f"{ref} is being downloaded; cancel the download first")
+        if self._status_of(ref) is VersionStatus.installed:
+            raise Conflict("ALREADY_INSTALLED", f"{ref} is already installed")
+        if not source.is_dir():
+            raise Unprocessable("IMPORT_SOURCE_NOT_FOUND", f"{source} is not a directory")
+        resolved = source.resolve()
+        if self._store.root.resolve() in (resolved, *resolved.parents):
+            raise Unprocessable(
+                "IMPORT_SOURCE_IN_STORE", f"{source} is inside the model store; import from elsewhere"
+            )
+
+        problems = find_problems(spec, source, on_file)
+        if problems:
+            raise Unprocessable(
+                "IMPORT_REJECTED",
+                f"{source} does not match {ref}, nothing was installed:\n  " + "\n  ".join(problems),
+            )
+
+        staging = self._store.staging_dir(ref)
+        shutil.rmtree(
+            staging, ignore_errors=True
+        )  # what an interrupted download left; the import replaces it
+        staging.mkdir(parents=True)
+        staged = None
+        try:
+            staged = stage_files(spec, source, staging, move=move)
+            self._store.commit(ref, spec)
+        except BaseException:
+            if staged is not None:
+                staged.undo()  # give the user's files back before the half-finished staging directory goes
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        staged.finish()
+        self._activate_if_first(entry, spec)
+        return ImportResult(ref, len(spec.files), sum(f.size or 0 for f in spec.files), move)
 
     def _forget_old_jobs(self) -> None:
         finished = [

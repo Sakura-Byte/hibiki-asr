@@ -381,6 +381,28 @@ def cmd_models(args: argparse.Namespace, settings: Settings) -> int:
                 print(f"error: {status.error or status.state.value}", file=sys.stderr)
                 return 1
             print(f"installed {args.ref}")
+        elif args.action == "import":
+            ref = _ref(args.model)
+            imported = manager.import_version(
+                ref,
+                args.directory,
+                move=args.move,
+                on_file=lambda name: print(f"checking {name} ...", file=sys.stderr),
+            )
+            print(
+                f"imported {ref}: {imported.files} files, {_mib(imported.size_bytes)}, "
+                f"{'moved' if imported.moved else 'copied'} into {settings.resolved_models_dir}"
+            )
+            entry = manager.catalog.get(ref.id)
+            if entry is not None and entry.kind == "model":
+                missing = [
+                    f"{r.id}@{r.version}" for r in manager.get_model(ref.id).requires if not r.installed
+                ]
+                if missing:
+                    print(
+                        f"note: {ref} also needs {', '.join(missing)}. `hibiki-asr models download {ref}` "
+                        "fetches just those, or import them the same way (--model ID@VERSION)."
+                    )
         elif args.action == "verify":
             result = manager.verify(_ref(args.ref))
             print("ok" if result.ok else "PROBLEMS:\n  " + "\n  ".join(result.problems))
@@ -477,6 +499,21 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--endpoint", help="download from this endpoint first, e.g. https://hf-mirror.com")
     dl.add_argument("--no-fallback", action="store_true", help="use only --endpoint")
     dl.add_argument("--threads", type=int, help="parallel connections per large file")
+    imp = ms.add_parser(
+        "import", help="adopt model files that are already on disk (e.g. another tool's models folder)"
+    )
+    imp.add_argument(
+        "directory", type=Path, help="folder holding the files the catalog lists for that version"
+    )
+    imp.add_argument(
+        "--model",
+        required=True,
+        metavar="ID@VERSION",
+        help="what the files are, e.g. chickenrice@v2 (or a component such as vad-asr@1)",
+    )
+    imp.add_argument(
+        "--move", action="store_true", help="take the files out of the folder instead of copying them"
+    )
     for name, helptext in (
         ("verify", "re-hash an installed version"),
         ("delete", "remove an installed version"),
