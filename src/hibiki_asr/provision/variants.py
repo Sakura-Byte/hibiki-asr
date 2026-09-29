@@ -15,21 +15,36 @@ else:  # pragma: no cover - exercised only on 3.10
     import tomli as tomllib
 
 
+STATUSES = ("stable", "experimental")
+
+
 @dataclass(frozen=True)
 class Variant:
     id: str
     title: str
     os: tuple[str, ...]
     gpu_vendor: str  # "none" | "nvidia" | "amd"
-    lockfile: str
+    lockfile: str  # "" when no verified pins exist
     docker: bool
     min_driver: int | None = None
     min_cc: tuple[int, int] | None = None
     min_cc_max: tuple[int, int] | None = None
     gfx: tuple[str, ...] = field(default_factory=tuple)
+    docker_tag: str = ""
+    status: str = "stable"
+    note: str = ""
 
     def supports_os(self, platform: str) -> bool:
         return any(platform.startswith(name) for name in self.os)
+
+    @property
+    def experimental(self) -> bool:
+        return self.status == "experimental"
+
+    @property
+    def installable(self) -> bool:
+        """Pinned runtime dependencies exist, so `hibiki-asr setup` can install this variant."""
+        return bool(self.lockfile)
 
 
 def parse_cc(value: str | None) -> tuple[int, int] | None:
@@ -58,6 +73,8 @@ def load_variants() -> dict[str, Variant]:
     text = resources.files("hibiki_asr.provision").joinpath("variants.toml").read_text(encoding="utf-8")
     variants: dict[str, Variant] = {}
     for row in tomllib.loads(text)["variant"]:
+        if row.get("status", "stable") not in STATUSES:
+            raise ValueError(f"variant {row['id']!r}: status must be one of {', '.join(STATUSES)}")
         variants[row["id"]] = Variant(
             id=row["id"],
             title=row["title"],
@@ -69,6 +86,9 @@ def load_variants() -> dict[str, Variant]:
             min_cc=parse_cc(row.get("min_cc")),
             min_cc_max=parse_cc(row.get("min_cc_max")),
             gfx=tuple(row.get("gfx", ())),
+            docker_tag=row.get("docker_tag", ""),
+            status=row.get("status", "stable"),
+            note=row.get("note", ""),
         )
     return variants
 
@@ -79,6 +99,12 @@ def get_variant(variant_id: str) -> Variant:
     except KeyError:
         known = ", ".join(sorted(load_variants()))
         raise KeyError(f"unknown variant {variant_id!r}; known variants: {known}") from None
+
+
+def setup_command(variant: Variant) -> str:
+    """The command that installs ``variant``, as findings and hints print it."""
+    flag = " --allow-experimental" if variant.experimental and variant.installable else ""
+    return f"hibiki-asr setup --variant {variant.id}{flag}"
 
 
 def _nvidia_variant(gpu: GpuInfo, platform: str) -> Variant | None:

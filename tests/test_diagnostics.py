@@ -87,7 +87,7 @@ def test_nvidia_in_container_without_gpu_access_explains_how_to_fix_it() -> None
     assert selection.degraded and selection.device == "cpu"
     assert "CT2_NO_GPU_SUPPORT" in codes(findings) and codes(findings)[-1] == "DEGRADED_TO_CPU"
     hint = next(f.hint for f in findings if f.code == "CT2_NO_GPU_SUPPORT")
-    assert "gpus: all" in hint and "cuda12" in hint
+    assert "gpus: all" in hint and "ghcr.io/sakura-byte/hibiki-asr:latest-cuda" in hint
 
 
 def test_nvidia_bare_metal_with_cpu_install_points_at_setup() -> None:
@@ -140,7 +140,8 @@ def test_driver_too_old_for_installed_runtime() -> None:
     _, findings = run(hw(old), rt(0), variant="cuda12")
     finding = next(f for f in findings if f.code == "NVIDIA_DRIVER_TOO_OLD")
     assert finding.severity is Severity.error
-    assert "525" in finding.message and "--variant cuda11" in (finding.hint or "")
+    # cuda11 has no pinned runtime (see variants.toml), so it is not offered as a way out
+    assert "525" in finding.message and finding.hint == "Update the NVIDIA driver."
 
 
 def test_blackwell_needs_the_cuda128_build() -> None:
@@ -259,7 +260,7 @@ def test_every_variant_row_is_wellformed() -> None:
     variants = load_variants()
     assert {"cpu", "cuda11", "cuda12", "cuda12-blackwell", "rocm-linux"} <= set(variants)
     for variant in variants.values():
-        assert variant.lockfile.endswith(".txt")
+        assert variant.lockfile == "" or variant.lockfile.endswith(".txt")
         if variant.gpu_vendor == "amd":
             assert variant.gfx
         if variant.gpu_vendor == "nvidia":

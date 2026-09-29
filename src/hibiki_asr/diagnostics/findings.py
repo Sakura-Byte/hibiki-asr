@@ -15,6 +15,7 @@ from ..provision.variants import (
     load_variants,
     parse_cc,
     recommend_variant,
+    setup_command,
 )
 from .schema import Finding, GpuInfo, HardwareProbe, RuntimeFacts, Selection, Severity
 from .selection import LOW_VRAM_MB, compute_gpu_expected, is_gpu_variant
@@ -24,13 +25,20 @@ IMAGE = "ghcr.io/sakura-byte/hibiki-asr"
 _ORDER = {Severity.error: 0, Severity.warning: 1, Severity.info: 2}
 
 
+_DOCKERFILE = {"none": "cpu", "nvidia": "cuda", "amd": "rocm"}
+
+
 def _switch_hint(target: Variant, probe: HardwareProbe) -> str:
     if probe.in_container:
+        prefix = "This engine is running in a container built for a different runtime. "
+        if target.docker:
+            return f"{prefix}Use the {target.docker_tag} image instead: {IMAGE}:latest-{target.docker_tag}"
+        args = " --build-arg HIBIKI_ASR_SETUP_ARGS=--allow-experimental" if target.experimental else ""
         return (
-            f"This engine is running in a container built for a different runtime. "
-            f"Use the {target.id} image instead: {IMAGE}:latest-{target.id}"
+            f"{prefix}No {target.id} image is published; build one: `docker build -f "
+            f"docker/Dockerfile.{_DOCKERFILE[target.gpu_vendor]} --build-arg HIBIKI_ASR_VARIANT={target.id}{args} .`"
         )
-    return f"Install the {target.title} runtime with `hibiki-asr setup --variant {target.id}` and restart the engine."
+    return f"Install the {target.title} runtime with `{setup_command(target)}` and restart the engine."
 
 
 def _gpus(probe: HardwareProbe, vendor: str) -> list[GpuInfo]:
@@ -65,7 +73,7 @@ def evaluate_findings(
                 severity=Severity.error,
                 message=f"Could not inspect the inference runtime: {runtime.probe_error}",
                 hint="Run `hibiki-asr doctor` in a terminal to see the full error. The runtime may be missing or corrupt: "
-                f"reinstall it with `hibiki-asr setup --variant {recommended.id}`.",
+                f"reinstall it with `{setup_command(recommended)}`.",
             )
         )
     if runtime.probe_ok and runtime.ctranslate2_version is None:
@@ -79,7 +87,7 @@ def evaluate_findings(
                 severity=Severity.error,
                 message=f"CTranslate2 failed to load: {text}",
                 hint=("A GPU runtime library is missing. " if libs else "")
-                + f"Reinstall the runtime: `hibiki-asr setup --variant {recommended.id}`.",
+                + f"Reinstall the runtime: `{setup_command(recommended)}`.",
             )
         )
     if runtime.probe_ok and runtime.faster_whisper_version is None:
@@ -88,7 +96,7 @@ def evaluate_findings(
                 code="FASTER_WHISPER_MISSING",
                 severity=Severity.error,
                 message=f"faster-whisper failed to import: {runtime.faster_whisper_error or 'unknown error'}",
-                hint=f"Run `hibiki-asr setup --variant {recommended.id}` to install the inference stack.",
+                hint=f"Run `{setup_command(recommended)}` to install the inference stack.",
             )
         )
     if runtime.probe_ok and runtime.onnxruntime_version is None:
@@ -97,7 +105,7 @@ def evaluate_findings(
                 code="ORT_UNAVAILABLE",
                 severity=Severity.error,
                 message=f"onnxruntime failed to import, so voice activity detection cannot run: {runtime.onnxruntime_error}",
-                hint=f"Run `hibiki-asr setup --variant {recommended.id}` to reinstall it.",
+                hint=f"Run `{setup_command(recommended)}` to reinstall it.",
             )
         )
 
@@ -162,7 +170,8 @@ def evaluate_findings(
             installed = load_variants().get(variant or "")
             driver = driver_major(nvidia[0].driver)
             if installed and installed.min_driver and driver is not None and driver < installed.min_driver:
-                older = get_variant("cuda11") if driver >= (get_variant("cuda11").min_driver or 0) else None
+                cuda11 = get_variant("cuda11")
+                older = cuda11 if cuda11.installable and driver >= (cuda11.min_driver or 0) else None
                 add(
                     Finding(
                         code="NVIDIA_DRIVER_TOO_OLD",
@@ -170,11 +179,7 @@ def evaluate_findings(
                         message=f"NVIDIA driver {nvidia[0].driver} is older than the {installed.min_driver} that the "
                         f"'{installed.id}' runtime needs.",
                         hint="Update the NVIDIA driver."
-                        + (
-                            f" Or switch to the older runtime: `hibiki-asr setup --variant {older.id}`."
-                            if older
-                            else ""
-                        ),
+                        + (f" Or switch to the older runtime: `{setup_command(older)}`." if older else ""),
                     )
                 )
             elif not any(f.code == "CUDA_DISABLED_BY_ENV" for f in out):

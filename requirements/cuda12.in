@@ -1,0 +1,16 @@
+# Runtime of the `cuda12` variant (NVIDIA, CUDA 12). Compiled into lockfiles/cuda12.txt by
+# scripts/compile_lockfiles.py; edit here, never in the .txt.
+#
+# * CTranslate2 (pulled in by faster-whisper) is the PyPI wheel. It carries its own CUDA runtime and loads only
+#   libcublas.so.12 and libcuda.so.1 (the driver) at run time, so cuBLAS comes from a pip wheel below.
+# * onnxruntime-gpu runs the VAD on the GPU. Its 1.27 and newer releases are built for CUDA 13, hence the cap.
+#   Python 3.10 stops at 1.23: 1.24 publishes no cp310 wheel although its metadata allows it.
+#   The cuda and cudnn extras pull the CUDA 12 libraries it dlopens (cuDNN 9, cuFFT, cuRAND, NVRTC, cudart).
+#   scripts/compile_lockfiles.py leaves the CPU `onnxruntime` that faster-whisper depends on out of the lockfile:
+#   both wheels install the same `onnxruntime` package and must never be present together.
+# * cuBLAS stays below 12.8, the first release with Blackwell kernels; the cuda12-blackwell variant has them.
+numpy>=1.26
+faster-whisper>=1.1,<2
+onnxruntime-gpu[cuda,cudnn]>=1.21,<1.24; python_version < "3.11"
+onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27; python_version >= "3.11"
+nvidia-cublas-cu12<12.8
