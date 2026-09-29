@@ -28,16 +28,18 @@ def collect_runtime_facts() -> RuntimeFacts:
         facts.ctranslate2_version = getattr(ctranslate2, "__version__", None)
         try:
             facts.cuda_device_count = int(ctranslate2.get_cuda_device_count())
-        except Exception as exc:  # noqa: BLE001 - a broken driver can raise anything
+        except Exception as exc:
             facts.ctranslate2_error = f"get_cuda_device_count failed: {exc}"
         for device in ("cpu", "cuda"):
             if device == "cuda" and facts.cuda_device_count == 0:
                 continue
             try:
                 facts.compute_types[device] = sorted(ctranslate2.get_supported_compute_types(device))
-            except Exception as exc:  # noqa: BLE001
-                facts.ctranslate2_error = facts.ctranslate2_error or f"get_supported_compute_types({device}) failed: {exc}"
-    except Exception as exc:  # noqa: BLE001 - ImportError, OSError from missing shared libraries, ...
+            except Exception as exc:
+                facts.ctranslate2_error = (
+                    facts.ctranslate2_error or f"get_supported_compute_types({device}) failed: {exc}"
+                )
+    except Exception as exc:
         facts.ctranslate2_error = f"{type(exc).__name__}: {exc}"
 
     try:
@@ -45,14 +47,14 @@ def collect_runtime_facts() -> RuntimeFacts:
 
         facts.onnxruntime_version = onnxruntime.__version__
         facts.onnxruntime_providers = list(onnxruntime.get_available_providers())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         facts.onnxruntime_error = f"{type(exc).__name__}: {exc}"
 
     try:
         import faster_whisper
 
         facts.faster_whisper_version = getattr(faster_whisper, "__version__", None)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         facts.faster_whisper_error = f"{type(exc).__name__}: {exc}"
 
     return facts
@@ -61,7 +63,7 @@ def collect_runtime_facts() -> RuntimeFacts:
 def probe_runtime(timeout: float = 60.0) -> RuntimeFacts:
     """Collect the facts in an isolated subprocess. A crash or hang becomes ``probe_ok=False``."""
     try:
-        completed = subprocess.run(  # noqa: S603 - fixed argv
+        completed = subprocess.run(
             [sys.executable, "-m", "hibiki_asr.diagnostics.runtime"],
             capture_output=True,
             text=True,

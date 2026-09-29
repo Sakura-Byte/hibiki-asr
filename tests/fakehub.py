@@ -21,7 +21,9 @@ def make_version(files: dict[str, bytes], *, repo: str = REPO, revision: str = R
         version="v1",
         repo=repo,
         revision=revision,
-        files=tuple(FileSpec(path, len(data), hashlib.sha256(data).hexdigest()) for path, data in files.items()),
+        files=tuple(
+            FileSpec(path, len(data), hashlib.sha256(data).hexdigest()) for path, data in files.items()
+        ),
     )
 
 
@@ -35,7 +37,9 @@ class FakeHub:
         self.missing_hosts: set[str] = set()  # answer 404
         self.no_range_hosts: set[str] = set()  # ignore Range and send the whole file
         self.corrupt: set[str] = set()  # serve altered bytes for these paths
-        self.fail_first: dict[str, int] = defaultdict(int)  # host -> number of requests to fail with 503 first
+        self.fail_first: dict[str, int] = defaultdict(
+            int
+        )  # host -> number of requests to fail with 503 first
         self.requests: list[tuple[str, str, str | None]] = []  # (host, file, Range header)
         self.on_request = None  # optional hook(request) called before answering
         self._lock = threading.Lock()
@@ -90,6 +94,8 @@ class FakeHub:
             end = int(end_text) if end_text else len(data) - 1
             end = min(end, len(data) - 1)
             return httpx.Response(
-                206, content=data[start : end + 1], headers={"Content-Range": f"bytes {start}-{end}/{len(data)}"}
+                206,
+                content=data[start : end + 1],
+                headers={"Content-Range": f"bytes {start}-{end}/{len(data)}"},
             )
         return httpx.Response(200, content=data)

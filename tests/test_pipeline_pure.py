@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
 from types import SimpleNamespace
 
 import numpy as np
@@ -43,7 +44,7 @@ def test_cut_lands_in_the_middle_of_the_longest_silence() -> None:
     assert chunks[0].end == pytest.approx(26.0)
     # chunks are contiguous and cover everything
     assert chunks[0].start == 0.0
-    assert all(a.end == b.start for a, b in zip(chunks, chunks[1:], strict=False))
+    assert all(a.end == b.start for a, b in pairwise(chunks))
     assert chunks[-1].end == 70.0
     assert all(c.duration_s <= 30.0 + 1e-9 for c in chunks)
 
@@ -74,12 +75,16 @@ def test_merge_drops_repeat() -> None:
 def test_merge_respects_gap_and_duration_limits() -> None:
     far = merge_segments([Segment(0, 1000, "a"), Segment(9000, 10_000, "a")], MergeOptions(max_gap_ms=2000))
     assert len(far) == 2
-    long = merge_segments([Segment(0, 15_000, "a"), Segment(15_000, 25_000, "a")], MergeOptions(max_duration_ms=20_000))
+    long = merge_segments(
+        [Segment(0, 15_000, "a"), Segment(15_000, 25_000, "a")], MergeOptions(max_duration_ms=20_000)
+    )
     assert len(long) == 2
 
 
 def test_merge_disabled_only_sorts_and_filters() -> None:
-    out = merge_segments([Segment(2000, 3000, "b"), Segment(0, 1000, "a"), Segment(5, 6, "  ")], MergeOptions(enabled=False))
+    out = merge_segments(
+        [Segment(2000, 3000, "b"), Segment(0, 1000, "a"), Segment(5, 6, "  ")], MergeOptions(enabled=False)
+    )
     assert out == [Segment(0, 1000, "a"), Segment(2000, 3000, "b")]
 
 
@@ -240,7 +245,10 @@ def test_pipeline_short_audio_single_chunk() -> None:
 def test_pipeline_no_speech_returns_empty() -> None:
     vad = FakeVad([])
     result = run_pipeline(
-        model=FakeModel(), vad=vad, audio=np.zeros(SR, dtype=np.float32), options=PipelineOptions("ja", "transcribe")
+        model=FakeModel(),
+        vad=vad,
+        audio=np.zeros(SR, dtype=np.float32),
+        options=PipelineOptions("ja", "transcribe"),
     )
     assert result.segments == [] and result.chunk_count == 0
 
@@ -257,7 +265,9 @@ def test_pipeline_cancels_between_segments() -> None:
             raise JobCancelled
 
     with pytest.raises(JobCancelled):
-        run_pipeline(model=FakeModel(), vad=vad, audio=audio, options=PipelineOptions("ja", "transcribe"), check=check)
+        run_pipeline(
+            model=FakeModel(), vad=vad, audio=audio, options=PipelineOptions("ja", "transcribe"), check=check
+        )
 
 
 def test_pipeline_rejects_bad_chunk_target() -> None:

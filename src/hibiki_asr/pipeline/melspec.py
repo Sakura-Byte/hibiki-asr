@@ -23,7 +23,9 @@ def _hz_to_mel(freq: np.ndarray) -> np.ndarray:
     freq = np.asarray(freq, dtype=np.float64)
     mels = 3.0 * freq / 200.0
     log_region = freq >= _MIN_LOG_HZ
-    mels = np.where(log_region, _MIN_LOG_MEL + np.log(np.maximum(freq, 1e-10) / _MIN_LOG_HZ) * _LOG_STEP, mels)
+    mels = np.where(
+        log_region, _MIN_LOG_MEL + np.log(np.maximum(freq, 1e-10) / _MIN_LOG_HZ) * _LOG_STEP, mels
+    )
     return mels
 
 

@@ -18,6 +18,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 from .catalog import Ref, VersionSpec
 
@@ -42,7 +43,7 @@ class ModelStore:
 
     # -- installed versions -----------------------------------------------------------------------
 
-    def read_marker(self, ref: Ref) -> dict | None:
+    def read_marker(self, ref: Ref) -> dict[str, Any] | None:
         try:
             return json.loads((self.version_dir(ref) / MARKER).read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -99,7 +100,7 @@ class ModelStore:
 
     # -- active version ---------------------------------------------------------------------------
 
-    def _state(self) -> dict:
+    def _state(self) -> dict[str, Any]:
         try:
             state = json.loads((self.root / "state.json").read_text(encoding="utf-8"))
             return state if isinstance(state, dict) else {}

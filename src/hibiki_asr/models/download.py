@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -40,7 +41,7 @@ class DownloadError(RuntimeError):
     """The download cannot complete; the message says why and is safe to show to a user."""
 
 
-class DownloadCancelled(Exception):  # noqa: N818
+class DownloadCancelled(Exception):
     """The download was cancelled by the user. Partial files are kept so it can resume."""
 
 
@@ -52,7 +53,7 @@ class ChecksumMismatch(DownloadError):
     pass
 
 
-class _NoRangeSupport(Exception):  # noqa: N818
+class _NoRangeSupport(Exception):
     """The server ignored a Range request, so the file cannot be fetched in parallel."""
 
 
@@ -157,7 +158,12 @@ class Downloader:
                     state["done"] = base + file_bytes
                     on_progress(
                         DownloadProgress(
-                            "downloading", state["done"], total, name, rate.update(state["done"]), self._active_endpoint
+                            "downloading",
+                            state["done"],
+                            total,
+                            name,
+                            rate.update(state["done"]),
+                            self._active_endpoint,
                         )
                     )
 
@@ -166,16 +172,20 @@ class Downloader:
                 raise DownloadCancelled
 
             # Hashing must not move the bar backwards: the whole file is already counted as downloaded.
-            self._verify(
-                spec,
-                part,
-                lambda _n, name=spec.path: on_progress(
+            def while_hashing(_n: int, name: str = spec.path) -> None:
+                on_progress(
                     DownloadProgress("verifying", state["done"], total, name, 0.0, self._active_endpoint)
-                ),
-            )
+                )
+
+            self._verify(spec, part, while_hashing)
             target = dest / spec.path
             target.parent.mkdir(parents=True, exist_ok=True)
             os.replace(part, target)
+
+        # Leave no empty scaffolding behind once everything is installed.
+        for leftover in (partial_dir, partial_root):
+            with contextlib.suppress(OSError):  # not empty: another download is using it
+                leftover.rmdir()
 
     # -- planning -------------------------------------------------------------------------------
 
@@ -233,7 +243,9 @@ class Downloader:
     def _ordered_endpoints(self) -> list[str]:
         """Endpoints that have not failed yet come first, so a dead one is not retried for every file and block."""
         with self._dead_lock:
-            return [e for e in self._endpoints if e not in self._dead] + [e for e in self._endpoints if e in self._dead]
+            return [e for e in self._endpoints if e not in self._dead] + [
+                e for e in self._endpoints if e in self._dead
+            ]
 
     def _demote(self, endpoint: str) -> None:
         with self._dead_lock:
@@ -269,7 +281,9 @@ class Downloader:
                     return
                 except (httpx.TransportError, httpx.HTTPStatusError) as exc:
                     errors.append(f"{endpoint}: {_describe(exc)}")
-                    logger.warning("download of %s from %s failed (attempt %d): %s", spec.path, endpoint, n + 1, exc)
+                    logger.warning(
+                        "download of %s from %s failed (attempt %d): %s", spec.path, endpoint, n + 1, exc
+                    )
                     if _not_worth_retrying(exc):
                         break  # retrying the same endpoint will not help; try the next mirror
                     self._sleep(min(2**n, 8))
@@ -393,7 +407,9 @@ class Downloader:
                 report()
 
         todo = [i for i in range(count) if i not in finished]
-        with ThreadPoolExecutor(max_workers=min(self._threads, max(1, len(todo))), thread_name_prefix="dl") as pool:
+        with ThreadPoolExecutor(
+            max_workers=min(self._threads, max(1, len(todo))), thread_name_prefix="dl"
+        ) as pool:
             futures = [pool.submit(fetch_block, i) for i in todo]
             try:
                 for future in as_completed(futures):
@@ -424,7 +440,9 @@ class Downloader:
         actual = part.stat().st_size
         if spec.size is not None and actual != spec.size:
             part.unlink(missing_ok=True)
-            raise ChecksumMismatch(f"{spec.path}: expected {spec.size} bytes, got {actual}; the download was discarded, retry it")
+            raise ChecksumMismatch(
+                f"{spec.path}: expected {spec.size} bytes, got {actual}; the download was discarded, retry it"
+            )
         if spec.sha256 is None:
             return
         done = 0
@@ -436,7 +454,9 @@ class Downloader:
 
         if sha256_of(part, tick) != spec.sha256:
             part.unlink(missing_ok=True)
-            raise ChecksumMismatch(f"{spec.path}: sha256 does not match the catalog; the download was discarded, retry it")
+            raise ChecksumMismatch(
+                f"{spec.path}: sha256 does not match the catalog; the download was discarded, retry it"
+            )
 
 
 def _not_worth_retrying(exc: Exception) -> bool:

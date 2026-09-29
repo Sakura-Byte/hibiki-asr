@@ -101,7 +101,9 @@ def speech_chunks_from_probs(
         spans.append([start, total])
 
     for index, span in enumerate(spans):
-        span[0] = max(0, span[0] - pad_frames) if index == 0 else max(spans[index - 1][1], span[0] - pad_frames)
+        span[0] = (
+            max(0, span[0] - pad_frames) if index == 0 else max(spans[index - 1][1], span[0] - pad_frames)
+        )
         span[1] = (
             min(spans[index + 1][0], span[1] + pad_frames)
             if index < len(spans) - 1

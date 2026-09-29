@@ -84,7 +84,9 @@ def _probe_nvidia(system: SystemAccess) -> tuple[list[GpuInfo], bool]:
         vram = int(parts[2]) if parts[2].isdigit() else None
         cc = parts[3] if len(parts) > 3 and re.fullmatch(r"\d+\.\d+", parts[3]) else None
         gpus.append(
-            GpuInfo(vendor="nvidia", name=parts[0], driver=parts[1] or None, vram_mb=vram, compute_capability=cc)
+            GpuInfo(
+                vendor="nvidia", name=parts[0], driver=parts[1] or None, vram_mb=vram, compute_capability=cc
+            )
         )
     return gpus, True
 
@@ -140,7 +142,12 @@ def _gpus_windows(system: SystemAccess) -> list[GpuInfo]:
     """Display adapters from the WMI video controller list."""
     names: list[str] = []
     code, out = system.run(
-        ["powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"],
+        [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
+        ],
         15.0,
     )
     if code == 0:
@@ -156,7 +163,9 @@ def _gpus_windows(system: SystemAccess) -> list[GpuInfo]:
             gpus.append(GpuInfo(vendor="nvidia", name=name))
         elif re.search(r"AMD|ATI|Radeon", name, re.IGNORECASE):
             gfx = next((target for pattern, target in _AMD_NAME_TO_GFX if pattern.search(name)), None)
-            gpus.append(GpuInfo(vendor="amd", name=name, gfx=gfx, integrated=bool(_INTEGRATED_NAME.search(name))))
+            gpus.append(
+                GpuInfo(vendor="amd", name=name, gfx=gfx, integrated=bool(_INTEGRATED_NAME.search(name)))
+            )
         elif re.search(r"Intel", name, re.IGNORECASE):
             gpus.append(GpuInfo(vendor="intel", name=name))
     return gpus

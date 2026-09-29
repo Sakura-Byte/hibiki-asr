@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 
-class JobCancelled(Exception):  # noqa: N818 - reads better than JobCancelledError at raise sites
+class JobCancelled(Exception):
     """Raised from a cancellation checkpoint once the job has been asked to stop."""
 
 

@@ -26,7 +26,7 @@ from .catalog import (
     parse_catalog,
     parse_local_toml,
 )
-from .download import DownloadCancelled, DownloadError, Downloader, DownloadProgress, sha256_of
+from .download import DownloadCancelled, Downloader, DownloadError, DownloadProgress, sha256_of
 from .schema import (
     CatalogRefreshResult,
     DownloadRequest,
@@ -66,6 +66,12 @@ class NotFound(ModelsError):
 
 class Conflict(ModelsError):
     status = 409
+
+
+class Unprocessable(ModelsError):
+    """The request is well formed but cannot be done, e.g. a language the model does not speak."""
+
+    status = 422
 
 
 class ModelNotInstalled(Conflict):
@@ -140,7 +146,9 @@ class ModelManager:
         self._catalog = catalog
         self._store = store
         # A blocked host usually hangs on connect: fail that fast, but allow a slow read on a big file.
-        self._client_factory = client_factory or (lambda: httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0, read=60.0)))
+        self._client_factory = client_factory or (
+            lambda: httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0, read=60.0))
+        )
         self._clock = clock
         self._sleep = sleep
         self.catalog_warnings = list(warnings or [])
@@ -159,7 +167,9 @@ class ModelManager:
     def _busy(self, ref: Ref) -> bool:
         with self._lock:
             return any(
-                j.target == ref and j.status is not None and j.status.state in (DownloadState.queued, DownloadState.running)
+                j.target == ref
+                and j.status is not None
+                and j.status.state in (DownloadState.queued, DownloadState.running)
                 for j in self._jobs.values()
             )
 
@@ -187,7 +197,7 @@ class ModelManager:
         return ModelInfo(
             id=entry.id,
             display_name=entry.display_name,
-            task=entry.task,  # type: ignore[arg-type]  # validated to be a model task by the catalog parser
+            task=entry.task,  # the catalog parser guarantees a model task
             source_languages=list(entry.source_languages),
             output_languages=list(entry.output_languages),
             license_note=entry.license_note,
@@ -246,7 +256,9 @@ class ModelManager:
         if not self._store.is_installed(ref):
             raise ModelNotInstalled("MODEL_NOT_INSTALLED", f"{ref} is not installed. Download it first.")
         if not self._store.is_intact(ref):
-            raise ModelNotInstalled("MODEL_CORRUPT", f"{ref} is damaged (a file is missing). Delete it and download it again.")
+            raise ModelNotInstalled(
+                "MODEL_CORRUPT", f"{ref} is damaged (a file is missing). Delete it and download it again."
+            )
 
         components: dict[str, Path] = {}
         for requirement in entry.requires:
@@ -282,7 +294,9 @@ class ModelManager:
         if entry.kind == "component":
             users = [d for d in self._catalog.dependents_of(ref) if self._store.is_installed(d)]
             if users:
-                raise Conflict("IN_USE", f"{ref} is needed by {', '.join(str(u) for u in users)}; delete those first")
+                raise Conflict(
+                    "IN_USE", f"{ref} is needed by {', '.join(str(u) for u in users)}; delete those first"
+                )
         else:
             installed = self._store.installed_versions(entry.id)
             if self._effective_active(entry) == ref.version and len(installed) > 1:
@@ -317,11 +331,12 @@ class ModelManager:
 
     def _endpoints(self, request: DownloadRequest) -> list[str]:
         configured = [self._settings.hf_endpoint, *self._settings.hf_mirrors]
-        order = [request.endpoint, *configured] if request.endpoint and request.fallback else (
-            [request.endpoint] if request.endpoint else configured
+        order = (
+            [request.endpoint, *configured]
+            if request.endpoint and request.fallback
+            else ([request.endpoint] if request.endpoint else configured)
         )
-        seen: set[str] = set()
-        return [e.rstrip("/") for e in order if e and not (e.rstrip("/") in seen or seen.add(e.rstrip("/")))]
+        return list(dict.fromkeys(e.rstrip("/") for e in order if e))  # de-duplicated, order kept
 
     def start_download(self, ref: Ref, request: DownloadRequest | None = None) -> DownloadStatus:
         request = request or DownloadRequest()
@@ -330,11 +345,17 @@ class ModelManager:
         except KeyError:
             raise NotFound("VERSION_NOT_FOUND", f"unknown model version {ref}") from None
         if entry.kind != "model":
-            raise NotFound("MODEL_NOT_FOUND", f"{ref.id!r} is a component; download a model, it brings its components")
+            raise NotFound(
+                "MODEL_NOT_FOUND", f"{ref.id!r} is a component; download a model, it brings its components"
+            )
 
         with self._lock:
             for job in self._jobs.values():
-                if job.target == ref and job.status and job.status.state in (DownloadState.queued, DownloadState.running):
+                if (
+                    job.target == ref
+                    and job.status
+                    and job.status.state in (DownloadState.queued, DownloadState.running)
+                ):
                     return job.snapshot()  # already on its way: one download per version
 
             if self._status_of(ref) is VersionStatus.corrupt:
@@ -389,7 +410,7 @@ class ModelManager:
                 for ref, item in plan:
                     base = finished_bytes
 
-                    def on_progress(p: DownloadProgress, base: int = base) -> None:
+                    def on_progress(p: DownloadProgress, base: int = base, ref: Ref = ref) -> None:
                         status.stage = p.stage
                         status.file = f"{ref.id}/{p.file}"
                         status.bytes_done = base + p.bytes_done
@@ -408,7 +429,9 @@ class ModelManager:
                     finished_bytes += item.total_size or 0
 
             if self._store.active(entry.id) is None:
-                self._store.set_active(entry.id, spec.version)  # the first installed version becomes the active one
+                self._store.set_active(
+                    entry.id, spec.version
+                )  # the first installed version becomes the active one
             status.state, status.stage, status.bytes_per_second = DownloadState.succeeded, "done", 0.0
             if status.bytes_total is not None:
                 status.bytes_done = status.bytes_total
@@ -416,13 +439,19 @@ class ModelManager:
             status.state, status.stage, status.bytes_per_second = DownloadState.cancelled, "cancelled", 0.0
         except DownloadError as exc:
             status.state, status.error, status.bytes_per_second = DownloadState.failed, str(exc), 0.0
-        except Exception as exc:  # noqa: BLE001 - never leave a job stuck in "running"
+        except Exception as exc:
             logger.exception("download of %s failed unexpectedly", job.target)
-            status.state, status.error, status.bytes_per_second = DownloadState.failed, f"{type(exc).__name__}: {exc}", 0.0
+            status.state, status.error, status.bytes_per_second = (
+                DownloadState.failed,
+                f"{type(exc).__name__}: {exc}",
+                0.0,
+            )
 
     def _forget_old_jobs(self) -> None:
         finished = [
-            j for j in self._jobs.values() if j.status and j.status.state not in (DownloadState.queued, DownloadState.running)
+            j
+            for j in self._jobs.values()
+            if j.status and j.status.state not in (DownloadState.queued, DownloadState.running)
         ]
         for job in finished[: max(0, len(self._jobs) - MAX_REMEMBERED_DOWNLOADS)]:
             del self._jobs[job.id]
@@ -473,7 +502,9 @@ class ModelManager:
         """Fetch a newer catalog from ``catalog_url``. A failure keeps the current catalog and says why."""
         url = self._settings.catalog_url
         if not url.startswith("https://"):
-            return CatalogRefreshResult(refreshed=False, models=len(self._catalog.models()), message="catalog_url must be https")
+            return CatalogRefreshResult(
+                refreshed=False, models=len(self._catalog.models()), message="catalog_url must be https"
+            )
         try:
             with self._client_factory() as client:
                 response = client.get(url, follow_redirects=True, timeout=20.0)
@@ -484,7 +515,11 @@ class ModelManager:
             fetched = parse_catalog(data, require_hashes=True)
             merged = merge_entries(self._catalog.entries.values(), fetched)  # keeps the user's local entries
         except (httpx.HTTPError, ValueError, CatalogError) as exc:
-            return CatalogRefreshResult(refreshed=False, models=len(self._catalog.models()), message=f"kept the current catalog: {exc}")
+            return CatalogRefreshResult(
+                refreshed=False,
+                models=len(self._catalog.models()),
+                message=f"kept the current catalog: {exc}",
+            )
 
         cache = self._settings.data_dir / "catalog.cache.json"
         cache.parent.mkdir(parents=True, exist_ok=True)
@@ -500,4 +535,3 @@ class ModelManager:
             for job in self._jobs.values():
                 job.cancel.set()
         self._pool.shutdown(wait=True, cancel_futures=True)
-

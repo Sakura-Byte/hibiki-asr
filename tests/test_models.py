@@ -10,8 +10,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from fakehub import FakeHub
 
+from fakehub import FakeHub
 from hibiki_asr.models.catalog import (
     CatalogError,
     Ref,
@@ -211,7 +211,10 @@ def test_load_catalog_layers_cache_and_local_and_survives_bad_layers(tmp_path: P
     (config_dir / "catalog.local.toml").write_text('schema = 1\n[[entry]]\nid = "x"\n')
     catalog, warnings = load_catalog(settings, config_dir)
     assert len(warnings) == 2 and "cached catalog" in warnings[0] and "catalog.local.toml" in warnings[1]
-    assert {e.id for e in catalog.models()} == {"chickenrice", "whisper-ja"}  # the built-in catalog still works
+    assert {e.id for e in catalog.models()} == {
+        "chickenrice",
+        "whisper-ja",
+    }  # the built-in catalog still works
 
 
 # --- listing / install --------------------------------------------------------------------------
@@ -410,7 +413,9 @@ def test_a_chosen_endpoint_falls_back_to_the_configured_ones(world: World) -> No
 
 def test_fallback_can_be_switched_off(world: World) -> None:
     world.hub.down_hosts = {"custom.example"}
-    done = world.install(Ref("tiny", "v1"), DownloadRequest(endpoint="https://custom.example", fallback=False))
+    done = world.install(
+        Ref("tiny", "v1"), DownloadRequest(endpoint="https://custom.example", fallback=False)
+    )
     assert done.state is DownloadState.failed
     assert "custom.example" not in (done.error or "") or "HTTP 503" in (done.error or "")
     assert world.hub.hosts_used() == {"custom.example"}  # never touched Hugging Face or the mirror

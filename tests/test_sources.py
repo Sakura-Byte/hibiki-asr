@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
 
 import pytest
-from fakehub import REPO, REVISION, FakeHub
 
+from fakehub import REPO, REVISION, FakeHub
 from hibiki_asr.models.catalog import merge_entries, parse_catalog
 from hibiki_asr.models.schema import ProbeSourcesRequest, SourceKind
 from hibiki_asr.models.sources import OFFICIAL_ENDPOINT, probe_sources, smallest_pinned_file
-
-import hashlib
 
 SMALL = b'{"tiny": true}'
 BIG = b"x" * 5000
@@ -27,7 +26,14 @@ def catalog_for_hub():
             {
                 "id": "comp",
                 "kind": "component",
-                "versions": [{"version": "1", "repo": REPO, "revision": REVISION, "files": [file("big.bin", BIG), file("meta.json", SMALL)]}],
+                "versions": [
+                    {
+                        "version": "1",
+                        "repo": REPO,
+                        "revision": REVISION,
+                        "files": [file("big.bin", BIG), file("meta.json", SMALL)],
+                    }
+                ],
             }
         ],
     }
@@ -39,7 +45,13 @@ def hub() -> FakeHub:
 
 
 def probe(h: FakeHub, **kwargs):
-    return probe_sources(h.client(), catalog_for_hub(), configured="https://huggingface.co", mirrors=["https://hf-mirror.com"], **kwargs)
+    return probe_sources(
+        h.client(),
+        catalog_for_hub(),
+        configured="https://huggingface.co",
+        mirrors=["https://hf-mirror.com"],
+        **kwargs,
+    )
 
 
 def test_probes_with_the_smallest_pinned_file() -> None:
@@ -55,7 +67,9 @@ def test_everything_reachable_reports_all_sources() -> None:
     assert result.default_endpoint == "https://huggingface.co"
     by_endpoint = {s.endpoint: s for s in result.sources}
     assert set(by_endpoint) == {"https://huggingface.co", "https://hf-mirror.com"}
-    assert by_endpoint["https://huggingface.co"].kind is SourceKind.official  # the official site keeps its own kind
+    assert (
+        by_endpoint["https://huggingface.co"].kind is SourceKind.official
+    )  # the official site keeps its own kind
     assert by_endpoint["https://hf-mirror.com"].kind is SourceKind.mirror
     assert all(s.reachable and s.latency_ms is not None and s.error is None for s in result.sources)
     assert result.recommended_endpoint in by_endpoint

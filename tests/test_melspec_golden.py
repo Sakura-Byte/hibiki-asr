@@ -45,5 +45,7 @@ def test_silence_is_stable() -> None:
 
 def test_from_preprocessor_config(tmp_path) -> None:
     path = tmp_path / "preprocessor_config.json"
-    path.write_text('{"feature_size": 128, "n_fft": 400, "hop_length": 160, "n_samples": 480000, "sampling_rate": 16000}')
+    path.write_text(
+        '{"feature_size": 128, "n_fft": 400, "hop_length": 160, "n_samples": 480000, "sampling_rate": 16000}'
+    )
     assert LogMelExtractor.from_preprocessor_config(path) == LogMelExtractor(feature_size=128)

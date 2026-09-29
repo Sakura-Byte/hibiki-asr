@@ -41,7 +41,13 @@ ENTRIES: list[dict] = [
                 "notes": "Whisper large-v2 fine-tuned on 5000 h of Japanese audio with Chinese subtitles; translates straight to Chinese.",
                 "repo": "chickenrice0721/whisper-large-v2-translate-zh-v0.2-st-ct2",
                 "revision": "2a896581429aa8100eaa5586bc36a5b3011871bc",
-                "files": ["config.json", "model.bin", "preprocessor_config.json", "tokenizer.json", "vocabulary.json"],
+                "files": [
+                    "config.json",
+                    "model.bin",
+                    "preprocessor_config.json",
+                    "tokenizer.json",
+                    "vocabulary.json",
+                ],
             }
         ],
     },
@@ -60,7 +66,13 @@ ENTRIES: list[dict] = [
                 "notes": "Whisper large-v3 fine-tune for Japanese, CTranslate2 bfloat16.",
                 "repo": "TransWithAI/whisper-ja-1.5B-ct2",
                 "revision": "1527314b14da5bdf0d14e7328649d4fa26840188",
-                "files": ["config.json", "model.bin", "preprocessor_config.json", "tokenizer.json", "vocabulary.json"],
+                "files": [
+                    "config.json",
+                    "model.bin",
+                    "preprocessor_config.json",
+                    "tokenizer.json",
+                    "vocabulary.json",
+                ],
             }
         ],
     },
@@ -140,7 +152,9 @@ def build() -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--check", action="store_true", help="fail if the committed catalog differs")
     args = parser.parse_args()
 

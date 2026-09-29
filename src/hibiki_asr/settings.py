@@ -22,7 +22,9 @@ else:  # pragma: no cover - exercised only on 3.10
 
 ENV_PREFIX = "HIBIKI_ASR_"
 DEFAULT_PORT = 8001
-DEFAULT_CATALOG_URL = "https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/src/hibiki_asr/models/catalog.json"
+DEFAULT_CATALOG_URL = (
+    "https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/src/hibiki_asr/models/catalog.json"
+)
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -70,7 +72,9 @@ class Settings(BaseModel):
 
     host: str = "127.0.0.1"
     port: int = Field(DEFAULT_PORT, ge=1, le=65535)
-    token: str | None = Field(None, description="Bearer token. Required when listening on a non-loopback address.")
+    token: str | None = Field(
+        None, description="Bearer token. Required when listening on a non-loopback address."
+    )
 
     data_dir: Path = Field(default_factory=default_data_dir)
     models_dir: Path | None = Field(None, description="Defaults to <data_dir>/models.")
@@ -79,8 +83,13 @@ class Settings(BaseModel):
     compute_type: str = "auto"
     allow_cpu_fallback: bool = True
 
-    idle_unload_seconds: int = Field(600, ge=0, description="Free the model (and VRAM) after this long without work; 0 = never.")
-    cancel_grace_seconds: float = Field(10.0, ge=0.0, description="How long a job may take to notice a cancel before the worker is killed.")
+    cpu_threads: int = Field(0, ge=0, description="Threads for CPU inference; 0 lets CTranslate2 choose.")
+    idle_unload_seconds: int = Field(
+        600, ge=0, description="Free the model (and VRAM) after this long without work; 0 = never."
+    )
+    cancel_grace_seconds: float = Field(
+        10.0, ge=0.0, description="How long a job may take to notice a cancel before the worker is killed."
+    )
     job_ttl_seconds: int = Field(3600, ge=60, description="How long finished jobs stay queryable.")
     max_upload_mb: int = Field(8192, ge=1)
 
@@ -88,7 +97,8 @@ class Settings(BaseModel):
     vad: VadSettings = Field(default_factory=VadSettings)
     merge: MergeSettings = Field(default_factory=MergeSettings)
     generation: dict[str, Any] = Field(
-        default_factory=dict, description="Extra faster-whisper transcribe() arguments, merged over the defaults."
+        default_factory=dict,
+        description="Extra faster-whisper transcribe() arguments, merged over the defaults.",
     )
 
     # Where models are downloaded from. `hf_endpoint` is tried first, then each of `hf_mirrors`.
@@ -97,7 +107,9 @@ class Settings(BaseModel):
     hf_endpoint: str = "https://huggingface.co"
     hf_mirrors: list[str] = Field(default_factory=lambda: ["https://hf-mirror.com"])
     hf_token: str | None = Field(None, description="Access token for private or gated repositories.")
-    download_threads: int = Field(4, ge=1, le=16, description="Parallel connections per large file; 1 disables splitting.")
+    download_threads: int = Field(
+        4, ge=1, le=16, description="Parallel connections per large file; 1 disables splitting."
+    )
     catalog_url: str = DEFAULT_CATALOG_URL
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -175,7 +187,11 @@ def _deep_merge(base: dict[str, Any], top: Mapping[str, Any]) -> dict[str, Any]:
 
 def config_file_path(env: Mapping[str, str] | None = None) -> Path:
     env = os.environ if env is None else env
-    return Path(env[ENV_PREFIX + "CONFIG"]) if env.get(ENV_PREFIX + "CONFIG") else default_config_dir(env) / "hibiki-asr.toml"
+    return (
+        Path(env[ENV_PREFIX + "CONFIG"])
+        if env.get(ENV_PREFIX + "CONFIG")
+        else default_config_dir(env) / "hibiki-asr.toml"
+    )
 
 
 def load_settings(
@@ -220,7 +236,9 @@ def write_config_value(path: Path, dotted_key: str, raw_value: str) -> Settings:
         if not isinstance(target, dict):
             raise ValueError(f"{section} is not a table")
     target[leaf] = _parse_free_form(raw_value) if section == "generation" else raw_value
-    validated = Settings.model_validate(current)  # rejects unknown keys and bad values before anything is written
+    validated = Settings.model_validate(
+        current
+    )  # rejects unknown keys and bad values before anything is written
 
     # Re-read the typed value so the file holds numbers and booleans, not strings.
     typed = validated.model_dump(mode="json")

@@ -7,14 +7,14 @@ import threading
 from pathlib import Path
 
 import pytest
-from fakehub import FakeHub, make_version
 
+from fakehub import FakeHub, make_version
 from hibiki_asr.models import download as dl
 from hibiki_asr.models.download import (
     ChecksumMismatch,
     DownloadCancelled,
-    DownloadError,
     Downloader,
+    DownloadError,
     DownloadProgress,
     InsufficientDiskSpace,
 )
@@ -53,7 +53,7 @@ def test_small_files_are_downloaded_and_verified(dirs) -> None:
 
     assert (dest / "config.json").read_bytes() == files["config.json"]
     assert (dest / "sub" / "vocab.txt").read_bytes() == files["sub/vocab.txt"]
-    assert not list(partial.rglob("*.part"))  # nothing left behind
+    assert not partial.exists()  # no half-downloaded files and no empty scaffolding left behind
 
 
 def test_large_file_is_fetched_in_parallel_blocks(dirs) -> None:
@@ -93,7 +93,9 @@ def test_blocks_really_download_concurrently(dirs) -> None:
             barrier.wait()  # the fourth block is fetched by whichever thread frees up first
 
     hub.on_request = rendezvous
-    downloader(hub, threads=3, block_size=MIB, parallel_min_size=MIB).fetch(make_version({"model.bin": data}), dest, partial)
+    downloader(hub, threads=3, block_size=MIB, parallel_min_size=MIB).fetch(
+        make_version({"model.bin": data}), dest, partial
+    )
     assert (dest / "model.bin").read_bytes() == data
 
 
@@ -203,7 +205,9 @@ def test_server_without_range_support_falls_back_to_a_single_stream(dirs) -> Non
     hub = FakeHub({"model.bin": data})
     hub.no_range_hosts = {"huggingface.co"}
 
-    downloader(hub, threads=4, block_size=MIB, parallel_min_size=MIB).fetch(make_version({"model.bin": data}), dest, partial)
+    downloader(hub, threads=4, block_size=MIB, parallel_min_size=MIB).fetch(
+        make_version({"model.bin": data}), dest, partial
+    )
 
     assert (dest / "model.bin").read_bytes() == data
     assert not list(partial.rglob("*.blocks*"))
@@ -250,7 +254,9 @@ def test_files_already_installed_are_skipped(dirs) -> None:
 def test_not_enough_disk_space_is_reported_before_downloading(dirs, monkeypatch) -> None:
     dest, partial = dirs
     hub = FakeHub({"model.bin": payload(1000)})
-    monkeypatch.setattr(dl.shutil, "disk_usage", lambda _p: os.stat_result((0,) * 10) and type("U", (), {"free": 1000})())
+    monkeypatch.setattr(
+        dl.shutil, "disk_usage", lambda _p: os.stat_result((0,) * 10) and type("U", (), {"free": 1000})()
+    )
 
     with pytest.raises(InsufficientDiskSpace, match="models_dir"):
         downloader(hub).fetch(make_version({"model.bin": payload(1000)}), dest, partial)
@@ -298,7 +304,9 @@ def test_an_unreachable_host_moves_on_immediately(dirs) -> None:
     hub.unreachable_hosts = {"huggingface.co"}
     sleeps: list[float] = []
 
-    downloader(hub, (HF, MIRROR), sleep=sleeps.append).fetch(make_version({"config.json": b"{}"}), dest, partial)
+    downloader(hub, (HF, MIRROR), sleep=sleeps.append).fetch(
+        make_version({"config.json": b"{}"}), dest, partial
+    )
 
     assert (dest / "config.json").read_bytes() == b"{}"
     assert sleeps == []  # no backoff for a host we cannot even connect to

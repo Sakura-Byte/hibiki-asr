@@ -35,11 +35,19 @@ def normalize_device(requested: str | None) -> str:
     return value
 
 
-def compute_gpu_expected(probe: HardwareProbe, requested: str) -> bool:
+def is_gpu_variant(variant: str | None) -> bool:
+    """A CUDA or ROCm runtime (or image) is only installed by someone who has, and expects to use, a GPU."""
+    from ..provision.variants import load_variants
+
+    found = load_variants().get(variant or "")
+    return found is not None and found.gpu_vendor != "none"
+
+
+def compute_gpu_expected(probe: HardwareProbe, requested: str, variant: str | None = None) -> bool:
     """Whether the user should reasonably expect a GPU to be used."""
     if requested == "cpu":
         return False
-    if requested == "cuda":
+    if requested == "cuda" or is_gpu_variant(variant):
         return True
     return any(g.vendor in ("nvidia", "amd") and not g.integrated for g in probe.gpus)
 
@@ -73,10 +81,14 @@ def pick_compute_type(device: str, supported: list[str], requested: str, vram_mb
 
 
 def select_runtime(
-    probe: HardwareProbe, runtime: RuntimeFacts, requested_device: str = "auto", requested_compute: str = "auto"
+    probe: HardwareProbe,
+    runtime: RuntimeFacts,
+    requested_device: str = "auto",
+    requested_compute: str = "auto",
+    variant: str | None = None,
 ) -> Selection:
     requested = normalize_device(requested_device)
-    expected = compute_gpu_expected(probe, requested)
+    expected = compute_gpu_expected(probe, requested, variant)
     use_gpu = requested != "cpu" and gpu_usable(probe, runtime)
     device = "cuda" if use_gpu else "cpu"
 

@@ -48,9 +48,13 @@ def _probe_one(
         response = client.get(url, follow_redirects=True, timeout=PROBE_TIMEOUT_S)
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
-        return SourceStatus(endpoint=endpoint, kind=kind, reachable=False, error=f"HTTP {exc.response.status_code}")
+        return SourceStatus(
+            endpoint=endpoint, kind=kind, reachable=False, error=f"HTTP {exc.response.status_code}"
+        )
     except httpx.HTTPError as exc:
-        return SourceStatus(endpoint=endpoint, kind=kind, reachable=False, error=f"{type(exc).__name__}: {exc}")
+        return SourceStatus(
+            endpoint=endpoint, kind=kind, reachable=False, error=f"{type(exc).__name__}: {exc}"
+        )
 
     latency_ms = max(0, int((clock() - started) * 1000))
     if hashlib.sha256(response.content).hexdigest() != spec.sha256:
@@ -86,7 +90,9 @@ def probe_sources(
         raise ValueError("the catalog has no file with a checksum to probe with")
 
     with ThreadPoolExecutor(max_workers=len(plan), thread_name_prefix="probe") as pool:
-        futures = [pool.submit(_probe_one, client, endpoint, kind, target, clock) for endpoint, kind in plan.items()]
+        futures = [
+            pool.submit(_probe_one, client, endpoint, kind, target, clock) for endpoint, kind in plan.items()
+        ]
         statuses = [f.result() for f in futures]
 
     working = sorted((s for s in statuses if s.reachable), key=lambda s: s.latency_ms or 0)

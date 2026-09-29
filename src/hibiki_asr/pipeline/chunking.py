@@ -10,6 +10,7 @@ sentence in half.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from itertools import pairwise
 
 from .types import WHISPER_SAMPLING_RATE, AudioChunk, SpeechSpan
 
@@ -62,7 +63,7 @@ def create_contiguous_chunks(
         best_split: float | None = None
         best_gap = 0.0
 
-        for previous, current in zip(ordered, ordered[1:], strict=False):
+        for previous, current in pairwise(ordered):
             gap_start, gap_end = previous.end, current.start
             if decision_zone_start <= gap_start and gap_end <= potential_end:
                 gap = gap_end - gap_start

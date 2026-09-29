@@ -74,7 +74,7 @@ class PipelineResult:
 
 
 def _ms(seconds: float) -> int:
-    return int(round(seconds * 1000))
+    return round(seconds * 1000)
 
 
 def _noop_progress(stage: str, fraction: float, message: str) -> None:
@@ -121,12 +121,14 @@ def run_pipeline(
     segments: list[Segment] = []
     for chunk in chunks:
         check()
-        start = max(0, min(len(audio), int(round(chunk.start * sr))))
-        end = max(start, min(len(audio), int(round(chunk.end * sr))))
+        start = max(0, min(len(audio), round(chunk.start * sr)))
+        end = max(start, min(len(audio), round(chunk.end * sr)))
         if end <= start:
             continue
 
-        segments.extend(_transcribe_chunk(model, vad, audio[start:end], chunk.start, chunk.end, options, check))
+        segments.extend(
+            _transcribe_chunk(model, vad, audio[start:end], chunk.start, chunk.end, options, check)
+        )
         fraction = _VAD_SHARE + (1 - _VAD_SHARE) * (chunk.end / duration if duration else 1.0)
         on_progress("transcribing", min(fraction, 1.0), f"transcribed chunk {chunk.index + 1}/{len(chunks)}")
 
@@ -179,4 +181,3 @@ def _iter_checked(items: Iterable[Any], check: CancelCheck) -> Iterable[Any]:
             yield next(iterator)
         except StopIteration:
             return
-

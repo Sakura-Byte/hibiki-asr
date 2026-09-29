@@ -26,14 +26,18 @@ def _cue_text(text: str) -> str:
 def to_vtt(segments: Sequence[Segment]) -> str:
     parts = ["WEBVTT\n\n"]
     for index, seg in enumerate(segments, start=1):
-        parts.append(f"{index}\n{_clock(seg.start_ms, '.')} --> {_clock(seg.end_ms, '.')}\n{_cue_text(seg.text)}\n\n")
+        parts.append(
+            f"{index}\n{_clock(seg.start_ms, '.')} --> {_clock(seg.end_ms, '.')}\n{_cue_text(seg.text)}\n\n"
+        )
     return "".join(parts)
 
 
 def to_srt(segments: Sequence[Segment]) -> str:
     parts: list[str] = []
     for index, seg in enumerate(segments, start=1):
-        parts.append(f"{index}\n{_clock(seg.start_ms, ',')} --> {_clock(seg.end_ms, ',')}\n{_cue_text(seg.text)}\n\n")
+        parts.append(
+            f"{index}\n{_clock(seg.start_ms, ',')} --> {_clock(seg.end_ms, ',')}\n{_cue_text(seg.text)}\n\n"
+        )
     return "".join(parts)
 
 
@@ -72,4 +76,6 @@ def render(segments: Sequence[Segment], fmt: str) -> str:
     try:
         return _WRITERS[fmt](segments)
     except KeyError:
-        raise ValueError(f"unsupported subtitle format {fmt!r}; expected one of {', '.join(FORMATS)}") from None
+        raise ValueError(
+            f"unsupported subtitle format {fmt!r}; expected one of {', '.join(FORMATS)}"
+        ) from None

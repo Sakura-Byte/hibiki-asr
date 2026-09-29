@@ -14,9 +14,7 @@ from dataclasses import dataclass, field
 def _run(argv: Sequence[str], timeout: float = 10.0) -> tuple[int, str]:
     """Run a command; (127, "") when it does not exist, (124, "") on timeout."""
     try:
-        completed = subprocess.run(  # noqa: S603 - argv is built from constants
-            list(argv), capture_output=True, text=True, timeout=timeout, check=False
-        )
+        completed = subprocess.run(list(argv), capture_output=True, text=True, timeout=timeout, check=False)
     except FileNotFoundError:
         return 127, ""
     except subprocess.TimeoutExpired:

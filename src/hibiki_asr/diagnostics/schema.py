@@ -44,8 +44,12 @@ class HardwareProbe(BaseModel):
     cpu_avx2: bool | None = None
     gpus: list[GpuInfo] = Field(default_factory=list)
     nvidia_smi_found: bool = False
-    kfd_present: bool | None = Field(default=None, description="Linux only: /dev/kfd exists (ROCm compute device).")
-    env: dict[str, str] = Field(default_factory=dict, description="GPU related environment variables that are set.")
+    kfd_present: bool | None = Field(
+        default=None, description="Linux only: /dev/kfd exists (ROCm compute device)."
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict, description="GPU related environment variables that are set."
+    )
 
 
 class RuntimeFacts(BaseModel):
@@ -71,14 +75,18 @@ class Selection(BaseModel):
     requested_device: str
     device: Literal["cuda", "cpu"]
     compute_type: str
-    degraded: bool = Field(description="A GPU was expected (requested, or present under 'auto') but the CPU is used.")
+    degraded: bool = Field(
+        description="A GPU was expected (requested, or present under 'auto') but the CPU is used."
+    )
     vad_device: Literal["cuda", "cpu"]
 
 
 class Diagnostics(BaseModel):
     api_version: int
     engine_version: str
-    variant: str | None = Field(default=None, description="Variant installed by `hibiki-asr setup`, if known.")
+    variant: str | None = Field(
+        default=None, description="Variant installed by `hibiki-asr setup`, if known."
+    )
     hardware: HardwareProbe
     runtime: RuntimeFacts
     selection: Selection

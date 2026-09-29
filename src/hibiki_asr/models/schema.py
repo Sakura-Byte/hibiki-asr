@@ -36,12 +36,18 @@ class ModelInfo(BaseModel):
     display_name: str
     task: Literal["transcribe", "translate"]
     source_languages: list[str] = Field(description="Languages the model understands, e.g. ['ja'].")
-    output_languages: list[str] = Field(description="Languages of the produced text, e.g. ['zh'] for a translate model.")
+    output_languages: list[str] = Field(
+        description="Languages of the produced text, e.g. ['zh'] for a translate model."
+    )
     license_note: str = ""
-    requires: list[RequirementInfo] = Field(default_factory=list, description="Shared components downloaded with the model.")
+    requires: list[RequirementInfo] = Field(
+        default_factory=list, description="Shared components downloaded with the model."
+    )
     active_version: str | None = None
     latest_version: str
-    update_available: bool = Field(description="A newer version than the installed ones exists in the catalog.")
+    update_available: bool = Field(
+        description="A newer version than the installed ones exists in the catalog."
+    )
     versions: list[ModelVersionInfo]
 
 
@@ -128,7 +134,9 @@ class SourceStatus(BaseModel):
 
 
 class SourcesResponse(BaseModel):
-    huggingface_reachable: bool = Field(description="The official https://huggingface.co can be reached directly.")
+    huggingface_reachable: bool = Field(
+        description="The official https://huggingface.co can be reached directly."
+    )
     recommended_endpoint: str | None = Field(
         default=None, description="The fastest source that works, or null when none does."
     )

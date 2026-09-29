@@ -8,9 +8,16 @@ commands that can be pasted as they are.
 
 from __future__ import annotations
 
-from ..provision.variants import Variant, driver_major, get_variant, load_variants, parse_cc, recommend_variant
+from ..provision.variants import (
+    Variant,
+    driver_major,
+    get_variant,
+    load_variants,
+    parse_cc,
+    recommend_variant,
+)
 from .schema import Finding, GpuInfo, HardwareProbe, RuntimeFacts, Selection, Severity
-from .selection import LOW_VRAM_MB, compute_gpu_expected
+from .selection import LOW_VRAM_MB, compute_gpu_expected, is_gpu_variant
 
 IMAGE = "ghcr.io/sakura-byte/hibiki-asr"
 
@@ -48,7 +55,7 @@ def evaluate_findings(
     amd_discrete = [g for g in amd if not g.integrated]
     gpu_wanted = selection.requested_device != "cpu"
     gpu_missing = gpu_wanted and runtime.cuda_device_count == 0  # the runtime sees no GPU at all
-    gpu_expected = compute_gpu_expected(probe, selection.requested_device)
+    gpu_expected = compute_gpu_expected(probe, selection.requested_device, variant)
 
     # ---- the runtime itself ----------------------------------------------------------------
     if not runtime.probe_ok:
@@ -63,7 +70,9 @@ def evaluate_findings(
         )
     if runtime.probe_ok and runtime.ctranslate2_version is None:
         text = runtime.ctranslate2_error or "unknown error"
-        libs = any(token in text.lower() for token in ("cudnn", "cublas", "cudart", "cuda", "hip", "dll", "libcu"))
+        libs = any(
+            token in text.lower() for token in ("cudnn", "cublas", "cudart", "cuda", "hip", "dll", "libcu")
+        )
         add(
             Finding(
                 code="CT2_IMPORT_FAILED",
@@ -105,6 +114,33 @@ def evaluate_findings(
                 )
             )
 
+    # ---- no GPU at all is visible, although one is expected ------------------------------------------
+    # The classic Docker mistake: a CUDA/ROCm image started without the GPU passed in shows an empty machine.
+    if (
+        gpu_missing
+        and not gpu_hardware
+        and probe.gpus == []
+        and (selection.requested_device == "cuda" or is_gpu_variant(variant))
+    ):
+        wanted = (
+            "a CUDA/ROCm runtime is installed" if is_gpu_variant(variant) else "the device is set to 'cuda'"
+        )
+        add(
+            Finding(
+                code="NO_GPU_VISIBLE",
+                severity=Severity.warning,
+                message=f"No NVIDIA or AMD GPU is visible to the engine, although {wanted}.",
+                hint=(
+                    "Pass the GPU into the container. NVIDIA (needs the NVIDIA Container Toolkit on the host): `gpus: all` in "
+                    "docker-compose, or `docker run --gpus all`. AMD: `devices: [/dev/kfd, /dev/dri]`, `group_add: [video, render]` "
+                    "and `security_opt: [seccomp=unconfined]`. If this machine has no GPU, use the CPU image or set HIBIKI_ASR_DEVICE=cpu."
+                    if probe.in_container
+                    else "Check that the GPU and its driver are installed and working (`nvidia-smi` on NVIDIA, `rocminfo` on AMD). "
+                    "If this machine has no GPU, set HIBIKI_ASR_DEVICE=cpu or install the CPU runtime: `hibiki-asr setup --variant cpu`."
+                ),
+            )
+        )
+
     # ---- NVIDIA -----------------------------------------------------------------------------
     if nvidia and gpu_missing:
         if not probe.nvidia_smi_found or all(g.driver is None for g in nvidia):
@@ -134,7 +170,11 @@ def evaluate_findings(
                         message=f"NVIDIA driver {nvidia[0].driver} is older than the {installed.min_driver} that the "
                         f"'{installed.id}' runtime needs.",
                         hint="Update the NVIDIA driver."
-                        + (f" Or switch to the older runtime: `hibiki-asr setup --variant {older.id}`." if older else ""),
+                        + (
+                            f" Or switch to the older runtime: `hibiki-asr setup --variant {older.id}`."
+                            if older
+                            else ""
+                        ),
                     )
                 )
             elif not any(f.code == "CUDA_DISABLED_BY_ENV" for f in out):
@@ -243,13 +283,18 @@ def evaluate_findings(
             )
         )
 
-    gpu = next(iter(nvidia or amd_discrete), None)
-    if selection.device == "cuda" and gpu and gpu.vram_mb is not None and gpu.vram_mb < LOW_VRAM_MB:
+    primary = next(iter(nvidia or amd_discrete), None)
+    if (
+        selection.device == "cuda"
+        and primary
+        and primary.vram_mb is not None
+        and primary.vram_mb < LOW_VRAM_MB
+    ):
         add(
             Finding(
                 code="VRAM_LOW",
                 severity=Severity.info,
-                message=f"{gpu.name} has {gpu.vram_mb} MB of VRAM; using {selection.compute_type} to save memory.",
+                message=f"{primary.name} has {primary.vram_mb} MB of VRAM; using {selection.compute_type} to save memory.",
                 hint="Close other programs that use the GPU. If loading still fails, the engine retries on the CPU.",
             )
         )
@@ -267,7 +312,11 @@ def evaluate_findings(
                 hint=f"Set HIBIKI_ASR_COMPUTE_TYPE=auto or one of: {', '.join(runtime.compute_types.get(selection.device, []))}.",
             )
         )
-    if selection.device == "cuda" and selection.vad_device == "cpu" and runtime.onnxruntime_version is not None:
+    if (
+        selection.device == "cuda"
+        and selection.vad_device == "cpu"
+        and runtime.onnxruntime_version is not None
+    ):
         add(
             Finding(
                 code="VAD_ON_CPU",
@@ -284,10 +333,13 @@ def evaluate_findings(
                 code="DEGRADED_TO_CPU",
                 severity=Severity.warning,
                 message="A GPU was expected but the CPU is being used, so transcription will be much slower.",
-                hint="The findings above say why. Fix the first error or warning and restart the engine; "
-                "set HIBIKI_ASR_DEVICE=cpu if the CPU is what you want.",
+                hint=(
+                    "The findings above say why. Fix the first error or warning and restart the engine; "
+                    if out
+                    else "Check that the GPU is visible to the engine and restart it; "
+                )
+                + "set HIBIKI_ASR_DEVICE=cpu if the CPU is what you want.",
             )
         )
 
     return sorted(out, key=lambda f: _ORDER[f.severity])
-
