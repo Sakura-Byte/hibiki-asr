@@ -1,0 +1,79 @@
+hibiki-asr
+Copyright (c) 2026 Sakura-Byte, MIT License (see LICENSE)
+
+This project reuses ideas and code from the following MIT-licensed projects.
+
+--------------------------------------------------------------------------------
+Faster-Whisper-TransWithAI-ChickenRice
+https://github.com/TransWithAI/Faster-Whisper-TransWithAI-ChickenRice
+Upstream commit 62104884d8553be1c30bc88c157d82b2b8d0792b
+
+Ported (and adapted) into src/hibiki_asr/pipeline/:
+  * the ASMR VAD wrapper and its Silero-style hysteresis post-processing (vad.py)
+  * smart chunk planning (chunking.py)
+  * subtitle segment merging and timeline enforcement (merge.py)
+  * subtitle writers (writers.py)
+  * the default generation parameters and the compute type preference order
+
+MIT License
+
+Copyright (c) 2025 TransWithAI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+faster-whisper
+https://github.com/SYSTRAN/faster-whisper
+
+The speech timestamp restoration in src/hibiki_asr/pipeline/speech_map.py follows
+the algorithm of faster-whisper's SpeechTimestampsMap.
+
+MIT License
+
+Copyright (c) 2023 SYSTRAN
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+Models
+
+No model weights are distributed with this project. The model catalog only
+references models hosted on Hugging Face, which are downloaded on the user's
+request and remain under their own licenses:
+  * chickenrice0721/whisper-large-v2-translate-zh-v0.2-st-ct2 (Apache-2.0)
+  * TransWithAI/whisper-ja-1.5B-ct2 (no license declared; derived from
+    efwkjn/whisper-ja-1.5B, which declares none either)
+  * TransWithAI/Whisper-Vad-EncDec-ASMR-onnx (MIT)
+  * openai/whisper-base (Apache-2.0), feature extractor configuration only

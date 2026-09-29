@@ -1,0 +1,103 @@
+# Install variants. This file is the single source of truth for:
+#   * which runtime `hibiki-asr setup --variant auto` installs on a given machine,
+#   * the CUDA/ROCm requirements the diagnostics check the machine against,
+#   * the Docker image matrix in CI.
+#
+# Adding support for a new GPU family means adding a row here and a lockfile under
+# provision/lockfiles/. Nothing else needs to change.
+#
+# Fields
+#   id           stable identifier (also the docker tag suffix and `--variant` value)
+#   title        human readable name
+#   os           operating systems (sys.platform prefixes: linux, win32, darwin)
+#   gpu_vendor   "none" | "nvidia" | "amd"
+#   min_driver   NVIDIA only: minimum driver major version the CUDA build needs
+#   min_cc       NVIDIA only: minimum compute capability
+#   min_cc_max   NVIDIA only: this build is meant for cards up to this compute capability (exclusive)
+#   gfx          AMD only: gfx targets this build supports
+#   lockfile     file under provision/lockfiles/ ("" = the plain pip requirement set for CPU)
+#   docker       whether CI publishes an image for this variant
+
+[[variant]]
+id = "cpu"
+title = "CPU only"
+os = ["linux", "win32", "darwin"]
+gpu_vendor = "none"
+lockfile = "cpu.txt"
+docker = true
+
+[[variant]]
+id = "cuda11"
+title = "NVIDIA CUDA 11.8 (older drivers and GPUs)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 450
+min_cc = "3.5"
+lockfile = "cuda11.txt"
+docker = false
+
+[[variant]]
+id = "cuda12"
+title = "NVIDIA CUDA 12 (cuDNN 9)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 525
+min_cc = "5.0"
+min_cc_max = "12.0"
+lockfile = "cuda12.txt"
+docker = true
+
+[[variant]]
+id = "cuda12-blackwell"
+title = "NVIDIA CUDA 12.8 (RTX 50 series / Blackwell)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 570
+min_cc = "12.0"
+lockfile = "cuda12-blackwell.txt"
+docker = true
+
+[[variant]]
+id = "rocm-win-gfx101x"
+title = "AMD ROCm on Windows (RDNA1: RX 5000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1010", "gfx1011", "gfx1012"]
+lockfile = "rocm-win-gfx101x.txt"
+docker = false
+
+[[variant]]
+id = "rocm-win-gfx103x"
+title = "AMD ROCm on Windows (RDNA2: RX 6000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1030", "gfx1031", "gfx1032", "gfx1034"]
+lockfile = "rocm-win-gfx103x.txt"
+docker = false
+
+[[variant]]
+id = "rocm-win-gfx110x"
+title = "AMD ROCm on Windows (RDNA3: RX 7000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1100", "gfx1101", "gfx1102", "gfx1103"]
+lockfile = "rocm-win-gfx110x.txt"
+docker = false
+
+[[variant]]
+id = "rocm-win-gfx120x"
+title = "AMD ROCm on Windows (RDNA4: RX 9000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1200", "gfx1201"]
+lockfile = "rocm-win-gfx120x.txt"
+docker = false
+
+[[variant]]
+id = "rocm-linux"
+title = "AMD ROCm on Linux"
+os = ["linux"]
+gpu_vendor = "amd"
+gfx = ["gfx1010", "gfx1011", "gfx1012", "gfx1030", "gfx1031", "gfx1032", "gfx1034", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1200", "gfx1201"]
+lockfile = "rocm-linux.txt"
+docker = true
