@@ -74,6 +74,11 @@ def test_standard_huggingface_variables_are_honoured_but_ours_win() -> None:
     assert both.hf_endpoint == "https://b.example"
 
 
+def test_the_variant_variable_of_the_docker_images_is_not_a_setting() -> None:
+    # HIBIKI_ASR_VARIANT names the installed runtime (see provision/state.py); it must not fail every command
+    assert load(env={"HIBIKI_ASR_VARIANT": "cuda12", "HIBIKI_ASR_PORT": "9001"}).port == 9001
+
+
 def test_mirrors_can_be_a_comma_separated_string() -> None:
     mirrors = load(env={"HIBIKI_ASR_HF_MIRRORS": "https://a.example, https://b.example"}).hf_mirrors
     assert mirrors == ["https://a.example", "https://b.example"]

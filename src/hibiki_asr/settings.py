@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .provision.state import ENV_VARIANT
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - exercised only on 3.10
@@ -26,6 +28,8 @@ DEFAULT_CATALOG_URL = (
     "https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/src/hibiki_asr/models/catalog.json"
 )
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# HIBIKI_ASR_* variables that configure something other than a setting.
+_NOT_SETTINGS = {ENV_PREFIX + "CONFIG", ENV_VARIANT}
 
 
 def default_config_dir(env: Mapping[str, str] | None = None, platform: str | None = None) -> Path:
@@ -165,7 +169,7 @@ def _env_overrides(env: Mapping[str, str]) -> dict[str, Any]:
     """HIBIKI_ASR_DEVICE=cpu, HIBIKI_ASR_VAD__THRESHOLD=0.4 (double underscore nests)."""
     out: dict[str, Any] = {name: env[var] for var, name in _HF_ENV_ALIASES.items() if env.get(var)}
     for key, value in env.items():
-        if not key.startswith(ENV_PREFIX) or key in {ENV_PREFIX + "CONFIG"}:
+        if not key.startswith(ENV_PREFIX) or key in _NOT_SETTINGS:
             continue
         parts = key[len(ENV_PREFIX) :].lower().split("__")
         target = out
