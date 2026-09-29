@@ -86,11 +86,15 @@ def create_app(engine: Engine) -> FastAPI:
     )
 
     # FastAPI has no constructor option for extra `info` fields, so stamp the API version into the spec here.
+    # `params` of POST /v1/jobs is a JSON string inside a multipart form, which FastAPI cannot describe as an
+    # object, so its schema is published next to the others for clients to check themselves against.
     generate = app.openapi
 
     def openapi_with_api_version() -> dict[str, Any]:
         schema = generate()
         schema["info"]["x-api-version"] = API_VERSION
+        schema["info"]["x-capabilities"] = CAPABILITIES
+        schema["components"]["schemas"]["JobParams"] = JobParams.model_json_schema()
         return schema
 
     app.openapi = openapi_with_api_version  # type: ignore[method-assign]

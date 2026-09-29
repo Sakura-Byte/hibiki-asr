@@ -5,7 +5,18 @@
     "summary": "Local Whisper speech recognition with a cancellable job API.",
     "description": "Submit audio, poll the job, cancel it if needed. Models are installed and versioned through the `/v1/models` endpoints; `/v1/diagnostics` explains which device is used and why.",
     "version": "0.1.0",
-    "x-api-version": 1
+    "x-api-version": 1,
+    "x-capabilities": [
+      "jobs",
+      "job-cancel",
+      "job-upload",
+      "diagnostics",
+      "models",
+      "model-versions",
+      "model-download",
+      "model-download-sources",
+      "model-catalog-refresh"
+    ]
   },
   "paths": {
     "/v1/healthz": {
@@ -3056,6 +3067,55 @@
           "corrupt"
         ],
         "title": "VersionStatus"
+      },
+      "JobParams": {
+        "description": "The ``params`` part of ``POST /v1/jobs``.",
+        "properties": {
+          "model_id": {
+            "description": "A model id (its active version) or 'id@version'. See GET /v1/models.",
+            "examples": [
+              "chickenrice",
+              "whisper-ja@1.5b"
+            ],
+            "title": "Model Id",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "transcribe",
+                  "translate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Defaults to the model's own task. A different one is rejected.",
+            "title": "Task"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Spoken language of the audio, e.g. 'ja'. Defaults to the model's first source language.",
+            "title": "Language"
+          }
+        },
+        "required": [
+          "model_id"
+        ],
+        "title": "JobParams",
+        "type": "object"
       }
     }
   }
