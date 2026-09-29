@@ -74,9 +74,16 @@ def test_standard_huggingface_variables_are_honoured_but_ours_win() -> None:
     assert both.hf_endpoint == "https://b.example"
 
 
-def test_the_variant_variable_of_the_docker_images_is_not_a_setting() -> None:
-    # HIBIKI_ASR_VARIANT names the installed runtime (see provision/state.py); it must not fail every command
-    assert load(env={"HIBIKI_ASR_VARIANT": "cuda12", "HIBIKI_ASR_PORT": "9001"}).port == 9001
+def test_variables_that_only_name_a_runtime_or_an_install_are_not_settings() -> None:
+    # HIBIKI_ASR_VARIANT names the runtime of a Docker image (provision/state.py); HIBIKI_ASR_REF and
+    # HIBIKI_ASR_INSTALL_VARIANT are read by install.sh and install.ps1. None of them may fail every command.
+    env = {
+        "HIBIKI_ASR_VARIANT": "cuda12",
+        "HIBIKI_ASR_REF": "v0.1.0",
+        "HIBIKI_ASR_INSTALL_VARIANT": "cpu",
+        "HIBIKI_ASR_PORT": "9001",
+    }
+    assert load(env=env).port == 9001
 
 
 def test_mirrors_can_be_a_comma_separated_string() -> None:

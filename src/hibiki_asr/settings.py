@@ -28,8 +28,9 @@ DEFAULT_CATALOG_URL = (
     "https://raw.githubusercontent.com/Sakura-Byte/hibiki-asr/main/src/hibiki_asr/models/catalog.json"
 )
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-# HIBIKI_ASR_* variables that configure something other than a setting.
-_NOT_SETTINGS = {ENV_PREFIX + "CONFIG", ENV_VARIANT}
+# HIBIKI_ASR_* variables that are not settings: the config file location, the runtime of a Docker image, and the
+# two the install scripts read.
+_NOT_SETTINGS = {ENV_PREFIX + "CONFIG", ENV_VARIANT, ENV_PREFIX + "REF", ENV_PREFIX + "INSTALL_VARIANT"}
 
 
 def default_config_dir(env: Mapping[str, str] | None = None, platform: str | None = None) -> Path:
