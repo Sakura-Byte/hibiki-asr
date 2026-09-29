@@ -201,3 +201,10 @@ def test_compile_script_rejects_a_variant_without_a_lockfile(capsys) -> None:
     script = _load_script("compile_lockfiles")
     assert script.main(["rocm-linux"]) == 2
     assert "rocm-linux" in capsys.readouterr().err
+
+
+def test_cuda12_starts_where_the_ctranslate2_wheel_has_gpu_code() -> None:
+    # read from the fatbin of ctranslate2 4.8.2: cubins for sm_53 (Tegra), 60, 61, 70, 75, 80, 86 and compute_86 PTX;
+    # nothing for Maxwell (5.x) desktop cards, which neither a cubin nor PTX from a later architecture can serve
+    assert get_variant("cuda12").min_cc == (6, 0)
+    assert get_variant("cuda11").min_cc == (3, 5)

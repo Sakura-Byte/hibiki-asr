@@ -66,6 +66,13 @@ def test_auto_installs_the_cpu_runtime_when_no_gpu_runtime_fits() -> None:
     assert choose(hw(IGPU), platform="win32").variant.id == "cpu"
 
 
+def test_a_maxwell_card_is_not_offered_a_runtime_its_wheel_cannot_run_on() -> None:
+    maxwell = GpuInfo(vendor="nvidia", name="GeForce GTX 970", driver="550.1", compute_capability="5.2")
+    choice = choose(hw(maxwell))
+    assert choice.variant.id == "cpu"
+    assert "cuda11 has no pinned runtime yet" in choice.reason and "GTX 970" in choice.reason
+
+
 def test_auto_never_picks_an_experimental_runtime_unless_allowed() -> None:
     blackwell = choose(hw(RTX5090))
     assert blackwell.variant.id == "cpu"
