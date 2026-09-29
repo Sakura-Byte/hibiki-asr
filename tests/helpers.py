@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from hibiki_asr import cli
 from hibiki_asr.diagnostics.schema import GpuInfo, HardwareProbe, RuntimeFacts
 
 CPU_TYPES = ["float32", "int16", "int8", "int8_float32"]
@@ -70,3 +71,10 @@ GTX1050 = GpuInfo(
 RX7900 = GpuInfo(vendor="amd", name="AMD Radeon RX 7900 XTX", gfx="gfx1100", integrated=False)
 RX6800 = GpuInfo(vendor="amd", name="AMD Radeon RX 6800", gfx="gfx1030", integrated=False)
 IGPU = GpuInfo(vendor="amd", name="AMD Radeon 890M", gfx="gfx1150", integrated=True)
+
+
+def run_cli(capsys, *argv: str) -> tuple[int, str, str]:
+    """Run ``hibiki-asr <argv>`` in this process; returns (exit code, stdout, stderr)."""
+    code = cli.main(list(argv))
+    out = capsys.readouterr()
+    return code, out.out, out.err

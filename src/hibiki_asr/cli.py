@@ -15,9 +15,24 @@ from .engine import Engine, engine_version
 from .models.catalog import CatalogError, Ref
 from .models.manager import ModelsError
 from .models.schema import DownloadRequest, DownloadState
+from .provision.commands import InstallerMissing, Runner, detect_installer, run_command
+from .provision.cuda_libs import prepare_environment
+from .provision.install import (
+    SetupRefused,
+    build_plan,
+    check_installable,
+    choose_variant,
+    distribution_installed,
+    execute,
+)
+from .provision.pins import lockfile_path, lockfile_sha256
+from .provision.state import read_lockfile_sha256, read_variant, write_variant
 from .settings import Settings, config_file_path, load_settings, write_config_value
 
 _SECRETS = ("token", "hf_token")
+
+# Commands that change the environment go through this, so tests can swap it and never install anything.
+command_runner: Runner = run_command
 
 
 def _mib(n: float) -> str:
@@ -70,6 +85,74 @@ def cmd_doctor(args: argparse.Namespace, settings: Settings) -> int:
         _print_json(diagnostics.model_dump(mode="json"))
     else:
         print(format_report(diagnostics))
+    return 1 if any(f.severity.value == "error" for f in diagnostics.findings) else 0
+
+
+# -- setup -----------------------------------------------------------------------------------------------
+
+
+def _platform() -> str:
+    return sys.platform
+
+
+def cmd_setup(args: argparse.Namespace, settings: Settings) -> int:
+    engine = Engine(settings)
+    try:
+        return _setup(args, settings, engine)
+    finally:
+        engine.shutdown()
+
+
+def _setup(args: argparse.Namespace, settings: Settings, engine: Engine) -> int:
+    try:
+        choice = choose_variant(
+            args.variant, engine.hardware(), _platform(), allow_experimental=args.allow_experimental
+        )
+        variant = choice.variant
+        check_installable(variant, _platform(), args.allow_experimental)
+        installer = detect_installer(sys.executable)
+    except (SetupRefused, InstallerMissing) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if (
+        args.if_changed
+        and read_variant(settings.data_dir) == variant.id
+        and read_lockfile_sha256(settings.data_dir) == lockfile_sha256(variant)
+    ):
+        print(f"The {variant.id} runtime is already installed from the current lockfile; nothing to do.")
+        return 0
+
+    with lockfile_path(variant) as lockfile:
+        plan = build_plan(choice, installer, lockfile, installed=distribution_installed)
+        print(f"Runtime variant: {variant.id} ({variant.title})")
+        print(f"  why: {plan.reason}")
+        if variant.experimental:
+            print(f"  experimental: {variant.note}")
+        print("Commands:")
+        for command in plan.commands:
+            print(f"  {command.display()}")
+        if args.dry_run:
+            print("Dry run: nothing was changed.")
+            return 0
+        if not args.yes:
+            if not sys.stdin.isatty():
+                print(
+                    "error: not running in a terminal, so cannot ask; pass --yes to install", file=sys.stderr
+                )
+                return 2
+            if input("Install now? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("Cancelled; nothing was changed.")
+                return 1
+        code = execute(plan, command_runner)
+    if code != 0:
+        return code
+
+    write_variant(settings.data_dir, variant.id, plan.lockfile_sha256)
+    prepare_environment()  # the CUDA libraries the install just added
+    print("\nInstalled. Checking what the engine sees now:\n")
+    diagnostics = engine.diagnostics(refresh=True)
+    print(format_report(diagnostics))
     return 1 if any(f.severity.value == "error" for f in diagnostics.findings) else 0
 
 
@@ -252,6 +335,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--json", action="store_true")
 
+    setup = sub.add_parser(
+        "setup",
+        help="install the runtime that fits this machine (CPU, NVIDIA CUDA) into this Python environment",
+    )
+    setup.add_argument(
+        "--variant",
+        default="auto",
+        metavar="auto|ID",
+        help="runtime variant to install; auto follows the hardware and says why (default). IDs: see variants.toml",
+    )
+    setup.add_argument("--dry-run", action="store_true", help="print the exact commands and change nothing")
+    setup.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    setup.add_argument(
+        "--allow-experimental",
+        action="store_true",
+        help="install a variant that is marked experimental (what is unverified is printed first)",
+    )
+    setup.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="do nothing when this runtime was already installed from the current lockfile (used by `update`)",
+    )
+
     config = sub.add_parser("config", help="show or change settings")
     config.add_argument("action", choices=["show", "path", "set"])
     config.add_argument("key", nargs="?")
@@ -279,7 +385,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-_COMMANDS = {"serve": cmd_serve, "doctor": cmd_doctor, "config": cmd_config, "models": cmd_models}
+_COMMANDS = {
+    "serve": cmd_serve,
+    "doctor": cmd_doctor,
+    "setup": cmd_setup,
+    "config": cmd_config,
+    "models": cmd_models,
+}
+_STARTS_RUNTIME = {"serve", "doctor", "setup"}  # they probe or run the inference stack in a child process
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -295,6 +408,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     for noisy in ("httpx", "httpcore"):  # one line per HTTP request would drown a multi-gigabyte download
         logging.getLogger(noisy).setLevel(max(logging.WARNING, logging.getLogger().level))
+    if args.command in _STARTS_RUNTIME:
+        prepare_environment()  # pip-installed CUDA libraries must be on the library path before children start
     return _COMMANDS[args.command](args, settings)
 
 

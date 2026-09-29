@@ -8,48 +8,8 @@ from pathlib import Path
 import pytest
 
 from helpers import RTX4090, hw, rt
+from helpers import run_cli as run
 from hibiki_asr import cli
-from hibiki_asr.engine import Engine
-from hibiki_asr.models.manager import ModelManager
-from hibiki_asr.models.store import ModelStore
-from test_models import World
-
-
-@pytest.fixture
-def env(tmp_path: Path, monkeypatch):
-    """A private data/config directory and an engine factory backed by the fake hub."""
-    world = World(tmp_path)
-    world.manager.shutdown()
-    monkeypatch.setenv("HIBIKI_ASR_DATA_DIR", str(world.settings.data_dir))
-    monkeypatch.setenv("HIBIKI_ASR_CONFIG", str(tmp_path / "config" / "hibiki-asr.toml"))
-    monkeypatch.setenv("HIBIKI_ASR_HF_MIRRORS", "https://hf-mirror.com")
-    machine = {"hardware": hw(), "runtime": rt(0)}
-
-    def make_engine(settings) -> Engine:
-        # every command is a new process in real life, so build a fresh manager over the same store each time
-        manager = ModelManager(
-            settings,
-            world.manager.catalog,
-            ModelStore(settings.resolved_models_dir),
-            client_factory=world.hub.client,
-            sleep=lambda _s: None,
-        )
-        return Engine(
-            settings,
-            models=manager,
-            hardware_probe=lambda: machine["hardware"],
-            runtime_probe=lambda: machine["runtime"],
-        )
-
-    monkeypatch.setattr(cli, "Engine", make_engine)
-    world.machine = machine
-    return world
-
-
-def run(capsys, *argv: str) -> tuple[int, str, str]:
-    code = cli.main(list(argv))
-    out = capsys.readouterr()
-    return code, out.out, out.err
 
 
 def test_version(capsys) -> None:

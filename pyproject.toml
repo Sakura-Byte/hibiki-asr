@@ -24,9 +24,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Inference stack imported by the worker subprocess only. `hibiki-asr setup`
-# installs the variant-specific pins (see provision/lockfiles); this extra is
-# the CPU baseline used by development and tests.
+# The inference stack, imported by the worker subprocess (the API process imports numpy too, so it needs this
+# extra to start at all). This is the CPU baseline: the install scripts install it first, so the engine works
+# even if the next step fails, and development and tests use it. `hibiki-asr setup` then installs the pinned
+# runtime for the machine on top of it (provision/lockfiles), swapping onnxruntime for onnxruntime-gpu on NVIDIA.
 runtime = [
   "numpy>=1.26",
   "faster-whisper>=1.1,<2",

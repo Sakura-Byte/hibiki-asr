@@ -69,6 +69,10 @@ class Engine:
     def variant(self) -> str | None:
         return read_variant(self.settings.data_dir)
 
+    def hardware(self) -> HardwareProbe:
+        """What the machine has, probed now (not cached)."""
+        return self._hardware_probe()
+
     def public_settings(self) -> dict[str, object]:
         data = self.settings.model_dump(mode="json", exclude=_SECRETS)
         data["models_dir"] = str(self.settings.resolved_models_dir)
