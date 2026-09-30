@@ -1,0 +1,99 @@
+name: Release
+
+# Push a tag such as v0.2.0 to publish: the sdist and wheel on a GitHub release, and the Docker images
+# ghcr.io/sakura-byte/hibiki-asr:<version>-{cpu,cuda,rocm} plus latest-{cpu,cuda,rocm}.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/sakura-byte/hibiki-asr
+
+jobs:
+  dist:
+    name: sdist and wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+  github-release:
+    name: GitHub release
+    needs: dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  docker:
+    name: image ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    # The ROCm image is experimental: its failure must not fail the release.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - tag: cpu
+            dockerfile: docker/Dockerfile.cpu
+            experimental: false
+            build_args: ""
+          - tag: cuda
+            dockerfile: docker/Dockerfile.cuda
+            experimental: false
+            build_args: ""
+          # docker/Dockerfile.rocm cannot be built without a ROCm build of CTranslate2 that a maintainer has
+          # verified: set the repository variables CT2_ROCM_WHEEL (URL) and CT2_ROCM_SHA256, and optionally
+          # ROCM_IMAGE. Until then this entry builds nothing.
+          - tag: rocm
+            dockerfile: docker/Dockerfile.rocm
+            experimental: true
+            build_args: |
+              CT2_ROCM_WHEEL=${{ vars.CT2_ROCM_WHEEL }}
+              CT2_ROCM_SHA256=${{ vars.CT2_ROCM_SHA256 }}
+              ROCM_IMAGE=${{ vars.ROCM_IMAGE || 'rocm/dev-ubuntu-22.04:7.2.4' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},suffix=-${{ matrix.tag }}
+            type=raw,value=latest-${{ matrix.tag }},enable=${{ !contains(github.ref_name, '-') }}
+      - name: Build and push
+        if: ${{ !matrix.experimental || vars.CT2_ROCM_WHEEL != '' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ matrix.build_args }}

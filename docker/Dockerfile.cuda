@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+#
+# hibiki-asr, NVIDIA CUDA 12 runtime. Build from the repository root:
+#
+#   docker build -f docker/Dockerfile.cuda -t hibiki-asr:cuda .
+#   docker run --rm --gpus all -e HIBIKI_ASR_TOKEN=change-me -p 8001:8001 -v hibiki-asr-data:/data hibiki-asr:cuda
+#
+# The host needs an NVIDIA driver (525 or newer) and the NVIDIA Container Toolkit. RTX 50 cards need the
+# experimental Blackwell runtime: add
+#   --build-arg HIBIKI_ASR_VARIANT=cuda12-blackwell --build-arg HIBIKI_ASR_SETUP_ARGS=--allow-experimental
+#
+# Why a plain Python image and not nvidia/cuda: the runtime needs libcuda.so.1 from the host driver, which the
+# NVIDIA Container Toolkit injects into any image, and CUDA 12 libraries, which the lockfile installs as pip wheels:
+# CTranslate2 (the PyPI wheel) loads only libcublas.so.12 (nvidia-cublas-cu12), and onnxruntime-gpu, for the VAD,
+# needs cuDNN 9, cuFFT, cuRAND, NVRTC and cudart (nvidia-*-cu12). `hibiki-asr serve` puts those wheels' directories
+# on LD_LIBRARY_PATH for its worker, so no base image with a CUDA toolkit is needed (it would add gigabytes).
+#
+# The image installs the package and then runs the very `hibiki-asr setup --variant <id> --yes` that a bare-metal
+# install runs, so a machine and an image get the same pinned runtime (src/hibiki_asr/provision/lockfiles).
+# HIBIKI_ASR_VARIANT is both the build argument and, afterwards, the environment variable the engine reads to know
+# which runtime it has. Models are not baked in: they are downloaded into /data (or imported, see the README).
+#
+# The engine listens on 0.0.0.0 inside the container and therefore refuses to start without HIBIKI_ASR_TOKEN.
+
+ARG PYTHON_IMAGE=python:3.12-slim-bookworm
+
+FROM ${PYTHON_IMAGE} AS build
+ARG HIBIKI_ASR_VARIANT=cuda12
+ARG HIBIKI_ASR_SETUP_ARGS=
+# uv installs the runtime (setup uses it when it is on PATH); it stays in this stage.
+RUN pip install --no-cache-dir uv==0.8.17
+WORKDIR /src
+COPY pyproject.toml README.md ./
+COPY src ./src
+# `[runtime]` is the CPU baseline the API process needs to start (numpy); setup then installs the pinned runtime.
+# hadolint ignore=SC2086
+RUN uv venv /opt/venv \
+ && uv pip install --python /opt/venv/bin/python ".[runtime]" \
+ && HIBIKI_ASR_DATA_DIR=/tmp/setup-state /opt/venv/bin/hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${HIBIKI_ASR_SETUP_ARGS}
+
+FROM ${PYTHON_IMAGE}
+ARG HIBIKI_ASR_VARIANT=cuda12
+RUN groupadd --gid 10001 hibiki \
+ && useradd --create-home --uid 10001 --gid 10001 --shell /usr/sbin/nologin hibiki \
+ && mkdir /data \
+ && chown 10001:10001 /data
+COPY --from=build /opt/venv /opt/venv
+COPY LICENSE NOTICE /usr/share/doc/hibiki-asr/
+ENV PATH="/opt/venv/bin:${PATH}" \
+    HIBIKI_ASR_VARIANT="${HIBIKI_ASR_VARIANT}" \
+    HIBIKI_ASR_DATA_DIR=/data \
+    HIBIKI_ASR_HOST=0.0.0.0 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PYTHONUNBUFFERED=1
+USER 10001:10001
+VOLUME /data
+EXPOSE 8001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/v1/healthz' % os.environ.get('HIBIKI_ASR_PORT', '8001'), timeout=4)"]
+ENTRYPOINT ["hibiki-asr"]
+CMD ["serve"]

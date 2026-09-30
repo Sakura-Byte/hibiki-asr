@@ -1,0 +1,8 @@
+# Runtime of the `cpu` variant. Compiled into src/hibiki_asr/provision/lockfiles/cpu.txt by
+# scripts/compile_lockfiles.py; edit here, never in the .txt.
+#
+# onnxruntime 1.24 declares Python >= 3.10 but publishes no cp310 wheel, so Python 3.10 stops at 1.23.
+numpy>=1.26
+faster-whisper>=1.1,<2
+onnxruntime>=1.18,<1.24; python_version < "3.11"
+onnxruntime>=1.18; python_version >= "3.11"

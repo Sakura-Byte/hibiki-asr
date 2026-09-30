@@ -1,0 +1,11 @@
+# Runtime of the `cuda12-blackwell` variant (RTX 50 series). Same as cuda12, with CUDA 12.8 or newer libraries
+# (the first with Blackwell support). Compiled into lockfiles/cuda12-blackwell.txt by scripts/compile_lockfiles.py.
+numpy>=1.26
+faster-whisper>=1.1,<2
+onnxruntime-gpu[cuda,cudnn]>=1.21,<1.24; python_version < "3.11"
+onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27; python_version >= "3.11"
+nvidia-cublas-cu12>=12.8
+nvidia-cuda-runtime-cu12>=12.8
+nvidia-cuda-nvrtc-cu12>=12.8
+nvidia-nvjitlink-cu12>=12.8
+nvidia-cudnn-cu12>=9.7

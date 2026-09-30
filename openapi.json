@@ -1,0 +1,3122 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "hibiki-asr",
+    "summary": "Local Whisper speech recognition with a cancellable job API.",
+    "description": "Submit audio, poll the job, cancel it if needed. Models are installed and versioned through the `/v1/models` endpoints; `/v1/diagnostics` explains which device is used and why.",
+    "version": "0.1.0",
+    "x-api-version": 1,
+    "x-capabilities": [
+      "jobs",
+      "job-cancel",
+      "job-upload",
+      "diagnostics",
+      "models",
+      "model-versions",
+      "model-download",
+      "model-download-sources",
+      "model-catalog-refresh"
+    ]
+  },
+  "paths": {
+    "/v1/healthz": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Is the engine up? (no token needed)",
+        "operationId": "healthz_v1_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Version",
+        "operationId": "version_v1_version_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/diagnostics": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Hardware, the device in use, and findings that explain a CPU fallback",
+        "operationId": "diagnostics_v1_diagnostics_get",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Diagnostics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Models",
+        "operationId": "list_models_v1_models_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ModelInfo"
+                  },
+                  "title": "Response List Models V1 Models Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/sources": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Can Hugging Face be reached directly, and which mirror is best?",
+        "operationId": "sources_v1_models_sources_get",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/sources/probe": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Test extra endpoints, e.g. a mirror the user typed in",
+        "operationId": "probe_sources_v1_models_sources_probe_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeSourcesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/refresh": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Fetch a newer model catalog",
+        "operationId": "refresh_catalog_v1_models_refresh_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRefreshResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/downloads": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "List Downloads",
+        "operationId": "list_downloads_v1_models_downloads_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DownloadStatus"
+                  },
+                  "title": "Response List Downloads V1 Models Downloads Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/downloads/{download_id}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Get Download",
+        "operationId": "get_download_v1_models_downloads__download_id__get",
+        "parameters": [
+          {
+            "name": "download_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Download Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Cancel a download (idempotent; partial data is kept for resuming)",
+        "operationId": "cancel_download_v1_models_downloads__download_id__delete",
+        "parameters": [
+          {
+            "name": "download_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Download Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Get Model",
+        "operationId": "get_model_v1_models__model_id__get",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}/versions/{version}/download": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Download a model version together with the components it needs",
+        "operationId": "download_v1_models__model_id__versions__version__download_post",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DownloadRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}/active": {
+      "put": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Choose which installed version jobs use by default",
+        "operationId": "set_active_v1_models__model_id__active_put",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetActiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}/versions/{version}/verify": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Re-hash the installed files",
+        "operationId": "verify_v1_models__model_id__versions__version__verify_post",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/models/{model_id}/versions/{version}": {
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "summary": "Delete Version",
+        "operationId": "delete_version_v1_models__model_id__versions__version__delete",
+        "parameters": [
+          {
+            "name": "model_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Model Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Version"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Submit audio for transcription (multipart: `params` JSON + `audio` file)",
+        "operationId": "create_job_v1_jobs_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_job_v1_jobs_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "operationId": "get_job_v1_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Cancel a job (idempotent)",
+        "operationId": "cancel_job_v1_jobs__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_create_job_v1_jobs_post": {
+        "properties": {
+          "params": {
+            "type": "string",
+            "title": "Params",
+            "description": "JSON of JobParams"
+          },
+          "audio": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Audio",
+            "description": "The audio (or video) file"
+          }
+        },
+        "type": "object",
+        "required": [
+          "params",
+          "audio"
+        ],
+        "title": "Body_create_job_v1_jobs_post"
+      },
+      "CatalogRefreshResult": {
+        "properties": {
+          "refreshed": {
+            "type": "boolean",
+            "title": "Refreshed"
+          },
+          "models": {
+            "type": "integer",
+            "title": "Models"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refreshed",
+          "models",
+          "message"
+        ],
+        "title": "CatalogRefreshResult"
+      },
+      "Diagnostics": {
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "title": "Api Version"
+          },
+          "engine_version": {
+            "type": "string",
+            "title": "Engine Version"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant",
+            "description": "Variant installed by `hibiki-asr setup`, if known."
+          },
+          "hardware": {
+            "$ref": "#/components/schemas/HardwareProbe"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeFacts"
+          },
+          "selection": {
+            "$ref": "#/components/schemas/Selection"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings",
+            "description": "Effective engine settings (read-only)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_version",
+          "engine_version",
+          "hardware",
+          "runtime",
+          "selection",
+          "findings",
+          "settings"
+        ],
+        "title": "Diagnostics"
+      },
+      "DownloadRequest": {
+        "properties": {
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint",
+            "description": "Download from this Hugging Face compatible endpoint first, e.g. https://hf-mirror.com."
+          },
+          "fallback": {
+            "type": "boolean",
+            "title": "Fallback",
+            "description": "Keep trying the configured endpoints and mirrors when `endpoint` fails. False downloads from `endpoint` only.",
+            "default": true
+          },
+          "threads": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 16.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threads",
+            "description": "Parallel connections per large file."
+          }
+        },
+        "type": "object",
+        "title": "DownloadRequest",
+        "description": "Optional per-download overrides. Everything left out uses the engine settings."
+      },
+      "DownloadState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "DownloadState"
+      },
+      "DownloadStatus": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "model_id": {
+            "type": "string",
+            "title": "Model Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "state": {
+            "$ref": "#/components/schemas/DownloadState"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "description": "queued | downloading | verifying | done"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source",
+            "description": "Endpoint the data is currently coming from."
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "bytes_done": {
+            "type": "integer",
+            "title": "Bytes Done",
+            "default": 0
+          },
+          "bytes_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes Total"
+          },
+          "bytes_per_second": {
+            "type": "number",
+            "title": "Bytes Per Second",
+            "default": 0.0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model_id",
+          "version",
+          "state",
+          "stage"
+        ],
+        "title": "DownloadStatus"
+      },
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable identifier, e.g. MODEL_NOT_INSTALLED."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBody"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse"
+      },
+      "Finding": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable machine readable identifier, e.g. CT2_NO_GPU_SUPPORT."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "What was detected."
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint",
+            "description": "What to do about it. Commands are copy-pasteable."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "Finding",
+        "description": "One observation about the environment, with a fix the user can act on."
+      },
+      "GpuInfo": {
+        "properties": {
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "nvidia",
+              "amd",
+              "intel",
+              "other"
+            ],
+            "title": "Vendor"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "vram_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vram Mb"
+          },
+          "driver": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Driver"
+          },
+          "compute_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compute Capability",
+            "description": "NVIDIA only, e.g. 8.9."
+          },
+          "gfx": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gfx",
+            "description": "AMD only, e.g. gfx1100."
+          },
+          "integrated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Integrated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "vendor",
+          "name"
+        ],
+        "title": "GpuInfo"
+      },
+      "HardwareProbe": {
+        "properties": {
+          "os": {
+            "type": "string",
+            "title": "Os"
+          },
+          "arch": {
+            "type": "string",
+            "title": "Arch"
+          },
+          "in_container": {
+            "type": "boolean",
+            "title": "In Container"
+          },
+          "cpu_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Model"
+          },
+          "cpu_cores": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Cores"
+          },
+          "cpu_avx2": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Avx2"
+          },
+          "gpus": {
+            "items": {
+              "$ref": "#/components/schemas/GpuInfo"
+            },
+            "type": "array",
+            "title": "Gpus"
+          },
+          "nvidia_smi_found": {
+            "type": "boolean",
+            "title": "Nvidia Smi Found",
+            "default": false
+          },
+          "kfd_present": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kfd Present",
+            "description": "Linux only: /dev/kfd exists (ROCm compute device)."
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Env",
+            "description": "GPU related environment variables that are set."
+          }
+        },
+        "type": "object",
+        "required": [
+          "os",
+          "arch",
+          "in_container"
+        ],
+        "title": "HardwareProbe",
+        "description": "What the machine has. Collected with the standard library only."
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          },
+          "api_version": {
+            "type": "integer",
+            "title": "Api Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "api_version"
+        ],
+        "title": "Health"
+      },
+      "JobError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Stable identifier, e.g. MODEL_LOAD_FAILED, WORKER_CRASHED, AUDIO_DECODE_FAILED."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hint"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "JobError"
+      },
+      "JobResult": {
+        "properties": {
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "vtt": {
+            "type": "string",
+            "title": "Vtt",
+            "description": "The same segments as WebVTT."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms",
+            "description": "Length of the audio."
+          },
+          "speech_ms": {
+            "type": "integer",
+            "title": "Speech Ms",
+            "description": "How much of it was speech, according to the VAD."
+          },
+          "model": {
+            "$ref": "#/components/schemas/ModelUsed"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeInfo"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segments",
+          "vtt",
+          "duration_ms",
+          "speech_ms",
+          "model",
+          "runtime"
+        ],
+        "title": "JobResult"
+      },
+      "JobState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "cancelling",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "JobState"
+      },
+      "JobStatus": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "description": "queued | loading | decoding | vad | transcribing | done"
+          },
+          "progress": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Progress"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position",
+            "description": "1 = next to run. Null once it started."
+          },
+          "created_at": {
+            "type": "number",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "number",
+            "title": "Updated At"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JobError"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "stage",
+          "progress",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobStatus"
+      },
+      "ModelInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "task": {
+            "type": "string",
+            "enum": [
+              "transcribe",
+              "translate"
+            ],
+            "title": "Task"
+          },
+          "source_languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Languages",
+            "description": "Languages the model understands, e.g. ['ja']."
+          },
+          "output_languages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Output Languages",
+            "description": "Languages of the produced text, e.g. ['zh'] for a translate model."
+          },
+          "license_note": {
+            "type": "string",
+            "title": "License Note",
+            "default": ""
+          },
+          "requires": {
+            "items": {
+              "$ref": "#/components/schemas/RequirementInfo"
+            },
+            "type": "array",
+            "title": "Requires",
+            "description": "Shared components downloaded with the model."
+          },
+          "active_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Version"
+          },
+          "latest_version": {
+            "type": "string",
+            "title": "Latest Version"
+          },
+          "update_available": {
+            "type": "boolean",
+            "title": "Update Available",
+            "description": "A newer version than the installed ones exists in the catalog."
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ModelVersionInfo"
+            },
+            "type": "array",
+            "title": "Versions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "display_name",
+          "task",
+          "source_languages",
+          "output_languages",
+          "latest_version",
+          "update_available",
+          "versions"
+        ],
+        "title": "ModelInfo"
+      },
+      "ModelUsed": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version"
+        ],
+        "title": "ModelUsed"
+      },
+      "ModelVersionInfo": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision",
+            "description": "Pinned Hugging Face commit the files are downloaded from."
+          },
+          "status": {
+            "$ref": "#/components/schemas/VersionStatus"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "description": "This is the version used when a job names the model without a version."
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes",
+            "description": "Download size of the model's own files."
+          },
+          "notes": {
+            "type": "string",
+            "title": "Notes",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "revision",
+          "status",
+          "active"
+        ],
+        "title": "ModelVersionInfo"
+      },
+      "ProbeSourcesRequest": {
+        "properties": {
+          "endpoints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Endpoints",
+            "description": "Extra endpoints to test on top of the configured ones."
+          }
+        },
+        "type": "object",
+        "title": "ProbeSourcesRequest"
+      },
+      "RequirementInfo": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "installed": {
+            "type": "boolean",
+            "title": "Installed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "display_name",
+          "installed"
+        ],
+        "title": "RequirementInfo"
+      },
+      "RuntimeFacts": {
+        "properties": {
+          "probe_ok": {
+            "type": "boolean",
+            "title": "Probe Ok",
+            "default": true
+          },
+          "probe_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Probe Error"
+          },
+          "python": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Python"
+          },
+          "ctranslate2_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ctranslate2 Version"
+          },
+          "ctranslate2_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ctranslate2 Error"
+          },
+          "cuda_device_count": {
+            "type": "integer",
+            "title": "Cuda Device Count",
+            "default": 0
+          },
+          "compute_types": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Compute Types"
+          },
+          "onnxruntime_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onnxruntime Version"
+          },
+          "onnxruntime_providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Onnxruntime Providers"
+          },
+          "onnxruntime_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onnxruntime Error"
+          },
+          "faster_whisper_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faster Whisper Version"
+          },
+          "faster_whisper_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faster Whisper Error"
+          }
+        },
+        "type": "object",
+        "title": "RuntimeFacts",
+        "description": "What the installed inference stack can do. Collected in a subprocess so a broken install cannot crash the API."
+      },
+      "RuntimeInfo": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "enum": [
+              "cuda",
+              "cpu"
+            ],
+            "title": "Device",
+            "description": "What actually ran the model ('cuda' also means ROCm/HIP)."
+          },
+          "compute_type": {
+            "type": "string",
+            "title": "Compute Type"
+          },
+          "vad_device": {
+            "type": "string",
+            "enum": [
+              "cuda",
+              "cpu"
+            ],
+            "title": "Vad Device"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "A GPU was expected but the CPU was used. See findings for why."
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "device",
+          "compute_type",
+          "vad_device",
+          "degraded"
+        ],
+        "title": "RuntimeInfo"
+      },
+      "Segment": {
+        "properties": {
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_ms",
+          "end_ms",
+          "text"
+        ],
+        "title": "Segment"
+      },
+      "Selection": {
+        "properties": {
+          "requested_device": {
+            "type": "string",
+            "title": "Requested Device"
+          },
+          "device": {
+            "type": "string",
+            "enum": [
+              "cuda",
+              "cpu"
+            ],
+            "title": "Device"
+          },
+          "compute_type": {
+            "type": "string",
+            "title": "Compute Type"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "A GPU was expected (requested, or present under 'auto') but the CPU is used."
+          },
+          "vad_device": {
+            "type": "string",
+            "enum": [
+              "cuda",
+              "cpu"
+            ],
+            "title": "Vad Device"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_device",
+          "device",
+          "compute_type",
+          "degraded",
+          "vad_device"
+        ],
+        "title": "Selection",
+        "description": "The device and precision the engine will use, and whether that is a step down from what was wanted."
+      },
+      "SetActiveRequest": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "SetActiveRequest"
+      },
+      "Severity": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "error"
+        ],
+        "title": "Severity"
+      },
+      "SourceKind": {
+        "type": "string",
+        "enum": [
+          "official",
+          "configured",
+          "mirror",
+          "custom"
+        ],
+        "title": "SourceKind"
+      },
+      "SourceStatus": {
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SourceKind"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable",
+            "description": "A small pinned file was fetched and its sha256 matched the catalog."
+          },
+          "latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency Ms"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "endpoint",
+          "kind",
+          "reachable"
+        ],
+        "title": "SourceStatus"
+      },
+      "SourcesResponse": {
+        "properties": {
+          "huggingface_reachable": {
+            "type": "boolean",
+            "title": "Huggingface Reachable",
+            "description": "The official https://huggingface.co can be reached directly."
+          },
+          "recommended_endpoint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Endpoint",
+            "description": "The fastest source that works, or null when none does."
+          },
+          "default_endpoint": {
+            "type": "string",
+            "title": "Default Endpoint",
+            "description": "What downloads use first when a request names no endpoint."
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "checked_at": {
+            "type": "number",
+            "title": "Checked At",
+            "description": "Unix time of the probe."
+          }
+        },
+        "type": "object",
+        "required": [
+          "huggingface_reachable",
+          "default_endpoint",
+          "sources",
+          "checked_at"
+        ],
+        "title": "SourcesResponse"
+      },
+      "VerifyResult": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "checked_files": {
+            "type": "integer",
+            "title": "Checked Files"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems",
+            "description": "One line per damaged or missing file."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "checked_files"
+        ],
+        "title": "VerifyResult"
+      },
+      "VersionInfo": {
+        "properties": {
+          "api_version": {
+            "type": "integer",
+            "title": "Api Version",
+            "description": "Bumped only for breaking API changes. Clients require a minimum."
+          },
+          "engine_version": {
+            "type": "string",
+            "title": "Engine Version"
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant",
+            "description": "Installed runtime variant, if known."
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities",
+            "description": "Optional features this engine offers. Clients gate features on these."
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_version",
+          "engine_version",
+          "capabilities"
+        ],
+        "title": "VersionInfo"
+      },
+      "VersionStatus": {
+        "type": "string",
+        "enum": [
+          "not_installed",
+          "downloading",
+          "installed",
+          "corrupt"
+        ],
+        "title": "VersionStatus"
+      },
+      "JobParams": {
+        "description": "The ``params`` part of ``POST /v1/jobs``.",
+        "properties": {
+          "model_id": {
+            "description": "A model id (its active version) or 'id@version'. See GET /v1/models.",
+            "examples": [
+              "chickenrice",
+              "whisper-ja@1.5b"
+            ],
+            "title": "Model Id",
+            "type": "string"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "enum": [
+                  "transcribe",
+                  "translate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Defaults to the model's own task. A different one is rejected.",
+            "title": "Task"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Spoken language of the audio, e.g. 'ja'. Defaults to the model's first source language.",
+            "title": "Language"
+          }
+        },
+        "required": [
+          "model_id"
+        ],
+        "title": "JobParams",
+        "type": "object"
+      }
+    }
+  }
+}

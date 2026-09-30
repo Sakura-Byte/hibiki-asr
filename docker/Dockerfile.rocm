@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1
+#
+# hibiki-asr, AMD ROCm on Linux. EXPERIMENTAL: NOT VERIFIED, and it does not build without your input.
+#
+# What is missing: CTranslate2 with ROCm support is not on PyPI (its package description points at the GitHub
+# releases page of CTranslate2), and that page could not be reached when this file was written. So no wheel URL, hash
+# or ROCm version is pinned here, `hibiki-asr setup --variant rocm-linux` refuses to run for lack of pins, and this
+# file cannot be built until you supply a wheel you have checked yourself:
+#
+#   docker build -f docker/Dockerfile.rocm -t hibiki-asr:rocm \
+#     --build-arg CT2_ROCM_WHEEL=https://.../ctranslate2-<version>-cp310-cp310-linux_x86_64.whl \
+#     --build-arg CT2_ROCM_SHA256=<sha256 of that file> \
+#     --build-arg ROCM_IMAGE=rocm/dev-ubuntu-22.04:<the ROCm version the wheel was built for> .
+#   docker run --rm --device=/dev/kfd --device=/dev/dri --group-add video --group-add render \
+#     --security-opt seccomp=unconfined -e HIBIKI_ASR_TOKEN=change-me -p 8001:8001 \
+#     -v hibiki-asr-data:/data hibiki-asr:rocm
+#
+# What it does: installs the package, runs the same `hibiki-asr setup --variant cpu --yes` as every other image
+# (faster-whisper, onnxruntime and the rest, pinned and hash-checked), then replaces CTranslate2 with your wheel after
+# checking its sha256, and finishes with `hibiki-asr doctor`, which fails the build when the wheel does not import
+# against the ROCm libraries of ROCM_IMAGE. The default ROCM_IMAGE is only a tag that exists; it must match the wheel.
+# The VAD runs on the CPU (onnxruntime has no ROCm provider here). Nothing was run on an AMD GPU.
+
+ARG ROCM_IMAGE=rocm/dev-ubuntu-22.04:7.2.4
+
+FROM ${ROCM_IMAGE}
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+ARG CT2_ROCM_WHEEL
+ARG CT2_ROCM_SHA256
+ARG HIBIKI_ASR_SETUP_ARGS=
+
+RUN test -n "${CT2_ROCM_WHEEL}" && test -n "${CT2_ROCM_SHA256}" \
+ || { echo "error: set --build-arg CT2_ROCM_WHEEL and CT2_ROCM_SHA256; see the header of this file" >&2; exit 1; }
+
+# hadolint ignore=DL3008
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-venv python3-pip ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 10001 hibiki \
+ && useradd --create-home --uid 10001 --gid 10001 --shell /usr/sbin/nologin hibiki \
+ && mkdir /data \
+ && chown 10001:10001 /data
+
+ENV PATH="/opt/venv/bin:${PATH}"
+WORKDIR /src
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY LICENSE NOTICE /usr/share/doc/hibiki-asr/
+
+# hadolint ignore=SC2086
+RUN python3 -m venv /opt/venv \
+ && pip install --no-cache-dir uv==0.8.17 \
+ && uv pip install --python /opt/venv/bin/python ".[runtime]" \
+ && HIBIKI_ASR_DATA_DIR=/tmp/setup-state hibiki-asr setup --variant cpu --yes ${HIBIKI_ASR_SETUP_ARGS}
+
+RUN set -eux; \
+    wheel="/tmp/$(basename "${CT2_ROCM_WHEEL%%\?*}")"; \
+    curl -fsSL -o "$wheel" "${CT2_ROCM_WHEEL}"; \
+    echo "${CT2_ROCM_SHA256}  ${wheel}" | sha256sum -c -; \
+    uv pip install --python /opt/venv/bin/python --no-deps --reinstall-package ctranslate2 "$wheel"; \
+    rm -f "$wheel"; \
+    HIBIKI_ASR_VARIANT=rocm-linux HIBIKI_ASR_DATA_DIR=/tmp/setup-state hibiki-asr doctor
+
+ENV HIBIKI_ASR_VARIANT=rocm-linux \
+    HIBIKI_ASR_DATA_DIR=/data \
+    HIBIKI_ASR_HOST=0.0.0.0 \
+    PYTHONUNBUFFERED=1
+USER 10001:10001
+VOLUME /data
+EXPOSE 8001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/v1/healthz' % os.environ.get('HIBIKI_ASR_PORT', '8001'), timeout=4)"]
+ENTRYPOINT ["hibiki-asr"]
+CMD ["serve"]

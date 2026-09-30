@@ -1,0 +1,125 @@
+# Install variants. This file is the single source of truth for:
+#   * which runtime `hibiki-asr setup --variant auto` installs on a given machine,
+#   * the CUDA/ROCm requirements the diagnostics check the machine against,
+#   * the Docker image matrix in CI.
+#
+# Adding support for a new GPU family means adding a row here and a lockfile under
+# provision/lockfiles/. Nothing else needs to change.
+#
+# Fields
+#   id           stable identifier (also the docker tag suffix and `--variant` value)
+#   title        human readable name
+#   os           operating systems (sys.platform prefixes: linux, win32, darwin)
+#   gpu_vendor   "none" | "nvidia" | "amd"
+#   min_driver   NVIDIA only: minimum driver major version the CUDA build needs
+#   min_cc       NVIDIA only: minimum compute capability (cuda12: the CTranslate2 wheel carries GPU code from sm_60)
+#   min_cc_max   NVIDIA only: this build is meant for cards up to this compute capability (exclusive)
+#   gfx          AMD only: gfx targets this build supports
+#   lockfile     file under provision/lockfiles/ with the pinned runtime, compiled from requirements/<id>.in
+#                by scripts/compile_lockfiles.py. "" = no verified pins exist, so `setup` cannot install it.
+#   docker       whether CI publishes an image for this variant
+#   docker_tag   the image tag suffix (ghcr.io/sakura-byte/hibiki-asr:<version>-<docker_tag>); "" without an image
+#   status       "stable" (default) or "experimental". `setup` installs an experimental variant only with
+#                --allow-experimental, and `--variant auto` never picks one for you.
+#   note         experimental only: what exactly has not been verified
+
+[[variant]]
+id = "cpu"
+title = "CPU only"
+os = ["linux", "win32", "darwin"]
+gpu_vendor = "none"
+lockfile = "cpu.txt"
+docker = true
+docker_tag = "cpu"
+
+[[variant]]
+id = "cuda11"
+title = "NVIDIA CUDA 11.8 (older drivers and GPUs)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 450
+min_cc = "3.5"
+lockfile = ""
+docker = false
+status = "experimental"
+note = "No pinned runtime exists. faster-whisper 1.x requires ctranslate2>=4 and the CTranslate2 4.x wheels on PyPI load CUDA 12 libraries (checked for 4.8.2: libcublas.so.12); faster-whisper's own documentation names ctranslate2 3.24.0 as the CUDA 11 build, and `uv pip compile` rejects it together with faster-whisper>=1.1. Running faster-whisper 1.x on CTranslate2 3.x was not attempted."
+
+[[variant]]
+id = "cuda12"
+title = "NVIDIA CUDA 12 (cuDNN 9)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 525
+min_cc = "6.0"
+min_cc_max = "12.0"
+lockfile = "cuda12.txt"
+docker = true
+docker_tag = "cuda"
+
+[[variant]]
+id = "cuda12-blackwell"
+title = "NVIDIA CUDA 12.8 (RTX 50 series / Blackwell)"
+os = ["linux", "win32"]
+gpu_vendor = "nvidia"
+min_driver = 570
+min_cc = "12.0"
+lockfile = "cuda12-blackwell.txt"
+docker = false
+status = "experimental"
+note = "The pins resolve (cuBLAS, cuDNN and CUDA runtime 12.8 or newer), but the CTranslate2 wheel on PyPI carries GPU code only for sm_53 to sm_86 plus compute_86 PTX (read from the fatbin of 4.8.2), nothing for Blackwell's sm_120. It can only run through the driver JIT-compiling that PTX on first load, which is slow and was not tried on an RTX 50 card."
+
+[[variant]]
+id = "rocm-win-gfx101x"
+title = "AMD ROCm on Windows (RDNA1: RX 5000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1010", "gfx1011", "gfx1012"]
+lockfile = ""
+docker = false
+status = "experimental"
+note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+
+[[variant]]
+id = "rocm-win-gfx103x"
+title = "AMD ROCm on Windows (RDNA2: RX 6000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1030", "gfx1031", "gfx1032", "gfx1034"]
+lockfile = ""
+docker = false
+status = "experimental"
+note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+
+[[variant]]
+id = "rocm-win-gfx110x"
+title = "AMD ROCm on Windows (RDNA3: RX 7000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1100", "gfx1101", "gfx1102", "gfx1103"]
+lockfile = ""
+docker = false
+status = "experimental"
+note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+
+[[variant]]
+id = "rocm-win-gfx120x"
+title = "AMD ROCm on Windows (RDNA4: RX 9000 series)"
+os = ["win32"]
+gpu_vendor = "amd"
+gfx = ["gfx1200", "gfx1201"]
+lockfile = ""
+docker = false
+status = "experimental"
+note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+
+[[variant]]
+id = "rocm-linux"
+title = "AMD ROCm on Linux"
+os = ["linux"]
+gpu_vendor = "amd"
+gfx = ["gfx1010", "gfx1011", "gfx1012", "gfx1030", "gfx1031", "gfx1032", "gfx1034", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1200", "gfx1201"]
+lockfile = ""
+docker = true
+docker_tag = "rocm"
+status = "experimental"
+note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."

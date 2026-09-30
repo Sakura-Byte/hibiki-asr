@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "entries": [
+    {
+      "id": "chickenrice",
+      "kind": "model",
+      "display_name": "ChickenRice (海南鸡) ja→zh",
+      "task": "translate",
+      "source_languages": [
+        "ja"
+      ],
+      "output_languages": [
+        "zh"
+      ],
+      "license_note": "Model card declares Apache-2.0 (base: openai/whisper-large-v2); training data provenance is not disclosed.",
+      "requires": [
+        "vad-asr@1",
+        "whisper-base-fe@1"
+      ],
+      "versions": [
+        {
+          "version": "v2",
+          "notes": "Whisper large-v2 fine-tuned on 5000 h of Japanese audio with Chinese subtitles; translates straight to Chinese.",
+          "repo": "chickenrice0721/whisper-large-v2-translate-zh-v0.2-st-ct2",
+          "revision": "2a896581429aa8100eaa5586bc36a5b3011871bc",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2796,
+              "sha256": "d86b7a7664a12559d644aa210a32ce9a7e03913e794b7ea4fb7182de69e273a7"
+            },
+            {
+              "path": "model.bin",
+              "size": 3086913037,
+              "sha256": "d9ede0107bf5eef437db3625216e2395aebafd0a72967c5583c6234659d18273"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 356,
+              "sha256": "994838f1fa6462c8b9b3c90edada831f11f3dd8b4664634e18f4694d005c9dbf"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 2480466,
+              "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+            },
+            {
+              "path": "vocabulary.json",
+              "size": 1068103,
+              "sha256": "5ad28279db5e546349708b9a74736e2c018737ac5a600f1048f1f26c99b85b47"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "whisper-ja",
+      "kind": "model",
+      "display_name": "Whisper Japanese 1.5B (transcription)",
+      "task": "transcribe",
+      "source_languages": [
+        "ja"
+      ],
+      "output_languages": [
+        "ja"
+      ],
+      "license_note": "No license is declared for these weights (nor for the original efwkjn/whisper-ja-1.5B). Check with the authors before redistributing.",
+      "requires": [
+        "vad-asr@1",
+        "whisper-base-fe@1"
+      ],
+      "versions": [
+        {
+          "version": "1.5b",
+          "notes": "Whisper large-v3 fine-tune for Japanese, CTranslate2 bfloat16.",
+          "repo": "TransWithAI/whisper-ja-1.5B-ct2",
+          "revision": "1527314b14da5bdf0d14e7328649d4fa26840188",
+          "files": [
+            {
+              "path": "config.json",
+              "size": 2700,
+              "sha256": "881b572085f850b76b1d2ff6d405bd4b232af72d3d899a07b549056e399f09fc"
+            },
+            {
+              "path": "model.bin",
+              "size": 3087284237,
+              "sha256": "01041dbc312122f6f0f5ef6dd89f2ad7dc0bba7b746e8e1bc3c4f04f0af0befd"
+            },
+            {
+              "path": "preprocessor_config.json",
+              "size": 340,
+              "sha256": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711"
+            },
+            {
+              "path": "tokenizer.json",
+              "size": 2480617,
+              "sha256": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca"
+            },
+            {
+              "path": "vocabulary.json",
+              "size": 1068114,
+              "sha256": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vad-asr",
+      "kind": "component",
+      "display_name": "ASMR voice activity detection",
+      "license_note": "MIT",
+      "versions": [
+        {
+          "version": "1",
+          "notes": "Whisper-base encoder with a small decoder, trained on about 500 h of Japanese ASMR.",
+          "repo": "TransWithAI/Whisper-Vad-EncDec-ASMR-onnx",
+          "revision": "6ac29e2cbf2f4f8e9b639861766a8639dd666e9c",
+          "files": [
+            {
+              "path": "model.onnx",
+              "size": 119137398,
+              "sha256": "cd47513515766d57f740e3094440dbbca9ab87e026b9cf21540d7ad588c0e047"
+            },
+            {
+              "path": "model_metadata.json",
+              "size": 370,
+              "sha256": "aeb23b4d032b38e8fe36d6eb350c91f1ae751e0ce11813633ab9533ada4c55b3"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "whisper-base-fe",
+      "kind": "component",
+      "display_name": "Whisper-base feature extractor config",
+      "license_note": "Apache-2.0",
+      "versions": [
+        {
+          "version": "1",
+          "notes": "preprocessor_config.json only; the VAD was trained on these log-mel features.",
+          "repo": "openai/whisper-base",
+          "revision": "e37978b90ca9030d5170a5c07aadb050351a65bb",
+          "files": [
+            {
+              "path": "preprocessor_config.json",
+              "size": 184990,
+              "sha256": "9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
