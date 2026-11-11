@@ -15,7 +15,7 @@ binary = str(args.binary.resolve())
 with tempfile.TemporaryDirectory() as directory:
     env = dict(os.environ, HIBIKI_ASR_DATA_DIR=directory, HIBIKI_ASR_TOKEN="binary-ci")
     subprocess.run([binary, "--self-test"], cwd=directory, env=env, check=True, timeout=120)
-    process = subprocess.Popen([binary, "--host", "127.0.0.1", "--port", "18001", "serve"], cwd=directory, env=env)
+    process = subprocess.Popen([binary, "serve", "--host", "127.0.0.1", "--port", "18001"], cwd=directory, env=env)
     try:
         for _ in range(60):
             assert process.poll() is None, "standalone server exited"
