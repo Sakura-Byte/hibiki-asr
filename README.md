@@ -334,7 +334,10 @@ CI checks the isolated runtime probe, spawned worker, and authenticated HTTP API
 from outside the source checkout. Hosted macOS runners cannot validate real GPU
 inference; deployment must also verify MLX on the target Mac.
 
-The delivery workflow is reusable with an exact `source-ref`. Public repository
-runs test the binaries and images without uploading deployment archives. Calling
-it from a private repository stores binary and Docker archives as private Actions
-artifacts, with checksums and limited retention; no public Release is created.
+Delivery runs independently in this repository. After both the test CI and every
+binary/image check pass, it publishes an immutable public prerelease named
+`build-<full-commit-SHA>`. Consumers pin that commit and verify `SHA256SUMS`;
+they download the finished artifacts instead of rebuilding the engine.
+Docker archives over the GitHub Release per-file limit are split into numbered
+parts; concatenate them in order, then load the gzip archive with `docker load`.
+The Actions artifacts are temporary; the public release is the durable source.
