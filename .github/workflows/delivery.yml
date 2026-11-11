@@ -117,11 +117,13 @@ jobs:
             sleep 10
           done
           echo "Timed out waiting for test CI"; exit 1
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: hibiki-asr-*
-          path: release
-          merge-multiple: true
+      - name: Prepare disk and download completed artifacts sequentially
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          mkdir -p release
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name | select(startswith("hibiki-asr-"))' | while read -r artifact; do
+            gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n "$artifact" -D release
+          done
       - name: Split large Docker archives for GitHub Release size limits
         working-directory: release
         run: |
