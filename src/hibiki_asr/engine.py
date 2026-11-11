@@ -21,7 +21,7 @@ from .jobs.manager import JobManager
 from .models.manager import ModelManager, load_catalog
 from .models.store import ModelStore
 from .provision.state import read_variant
-from .settings import Settings, config_file_path
+from .settings import RuntimeSettings, Settings, config_file_path
 from .worker.process import WorkerFactory, default_factory
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,29 @@ class Engine:
         data = self.settings.model_dump(mode="json", exclude=_SECRETS)
         data["models_dir"] = str(self.settings.resolved_models_dir)
         return data
+
+    def runtime_settings(self) -> RuntimeSettings:
+        with self._lock:
+            return RuntimeSettings.model_validate(
+                self.settings.model_dump(include=set(RuntimeSettings.model_fields))
+            )
+
+    def update_runtime_settings(self, patch: RuntimeSettings) -> RuntimeSettings:
+        """Apply a validated partial update to future submissions. File/env settings are unchanged."""
+        with self._lock:
+            values = self.settings.model_dump()
+            updates = patch.model_dump(exclude_unset=True)
+            for section in ("vad", "merge"):
+                if section in updates:
+                    updates[section] = {**values[section], **updates[section]}
+            values.update(updates)
+            updated = Settings.model_validate(values)
+            self.jobs.configure(updated)
+            self.settings = updated
+            self._cached = None
+            return RuntimeSettings.model_validate(
+                updated.model_dump(include=set(RuntimeSettings.model_fields))
+            )
 
     def diagnostics(self, *, refresh: bool = False) -> Diagnostics:
         """Hardware, runtime, the device that will be used and the findings. Cached briefly: the probes are slow."""

@@ -11,6 +11,7 @@
       "job-cancel",
       "job-upload",
       "diagnostics",
+      "runtime-settings",
       "models",
       "model-versions",
       "model-download",
@@ -221,6 +222,193 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Diagnostics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Current runtime defaults (no secrets)",
+        "operationId": "runtime_settings_v1_settings_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Change defaults for future jobs without restarting",
+        "description": "Only supplied fields change. VAD and merge fields are merged; generation replaces the whole map (use {} to reset it). Submitted jobs retain their settings. Changes last until the service restarts.",
+        "operationId": "update_runtime_settings_v1_settings_patch",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeSettings"
                 }
               }
             }
@@ -2093,6 +2281,7 @@
               "nvidia",
               "amd",
               "intel",
+              "apple",
               "other"
             ],
             "title": "Vendor"
@@ -2442,6 +2631,30 @@
         ],
         "title": "JobStatus"
       },
+      "MergeSettings": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "max_gap_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Max Gap Ms",
+            "default": 2000
+          },
+          "max_duration_ms": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Max Duration Ms",
+            "default": 20000
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "MergeSettings"
+      },
       "ModelInfo": {
         "properties": {
           "id": {
@@ -2752,6 +2965,35 @@
               }
             ],
             "title": "Faster Whisper Error"
+          },
+          "mlx_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mlx Version",
+            "description": "Apple Silicon only: the MLX runtime, when it is installed."
+          },
+          "mlx_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mlx Error"
+          },
+          "mlx_gpu": {
+            "type": "boolean",
+            "title": "Mlx Gpu",
+            "description": "MLX can use the Apple GPU (Metal).",
+            "default": false
           }
         },
         "type": "object",
@@ -2764,10 +3006,11 @@
             "type": "string",
             "enum": [
               "cuda",
+              "mlx",
               "cpu"
             ],
             "title": "Device",
-            "description": "What actually ran the model ('cuda' also means ROCm/HIP)."
+            "description": "What actually ran the model ('cuda' also means ROCm/HIP, 'mlx' is the Apple GPU)."
           },
           "compute_type": {
             "type": "string",
@@ -2803,6 +3046,89 @@
         ],
         "title": "RuntimeInfo"
       },
+      "RuntimeSettings": {
+        "properties": {
+          "device": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "cpu",
+              "cuda",
+              "amd",
+              "mlx"
+            ],
+            "title": "Device",
+            "default": "auto"
+          },
+          "compute_type": {
+            "type": "string",
+            "title": "Compute Type",
+            "default": "auto"
+          },
+          "allow_cpu_fallback": {
+            "type": "boolean",
+            "title": "Allow Cpu Fallback",
+            "default": true
+          },
+          "cpu_threads": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cpu Threads",
+            "description": "Threads for CPU inference; 0 lets CTranslate2 choose.",
+            "default": 0
+          },
+          "idle_unload_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Idle Unload Seconds",
+            "description": "Free the model (and VRAM) after this long without work; 0 = never.",
+            "default": 600
+          },
+          "cancel_grace_seconds": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Cancel Grace Seconds",
+            "description": "How long a job may take to notice a cancel before the worker is killed.",
+            "default": 10.0
+          },
+          "job_ttl_seconds": {
+            "type": "integer",
+            "minimum": 60.0,
+            "title": "Job Ttl Seconds",
+            "description": "How long finished jobs stay queryable.",
+            "default": 3600
+          },
+          "max_upload_mb": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Max Upload Mb",
+            "default": 8192
+          },
+          "chunk_target_s": {
+            "type": "number",
+            "maximum": 30.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Chunk Target S",
+            "default": 30.0
+          },
+          "vad": {
+            "$ref": "#/components/schemas/VadSettings"
+          },
+          "merge": {
+            "$ref": "#/components/schemas/MergeSettings"
+          },
+          "generation": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Generation",
+            "description": "Extra faster-whisper transcribe() arguments, merged over the defaults."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RuntimeSettings",
+        "description": "Inference and queue settings that can be changed while the service is running."
+      },
       "Segment": {
         "properties": {
           "start_ms": {
@@ -2836,9 +3162,11 @@
             "type": "string",
             "enum": [
               "cuda",
+              "mlx",
               "cpu"
             ],
-            "title": "Device"
+            "title": "Device",
+            "description": "cuda: NVIDIA or AMD through CTranslate2. mlx: the Apple GPU through MLX. cpu: CTranslate2."
           },
           "compute_type": {
             "type": "string",
@@ -2991,6 +3319,45 @@
           "checked_at"
         ],
         "title": "SourcesResponse"
+      },
+      "VadSettings": {
+        "properties": {
+          "threshold": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Threshold",
+            "default": 0.5
+          },
+          "min_speech_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Min Speech Duration Ms",
+            "default": 300
+          },
+          "min_silence_duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Min Silence Duration Ms",
+            "default": 100
+          },
+          "speech_pad_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Speech Pad Ms",
+            "default": 200
+          },
+          "threads": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Threads",
+            "description": "ONNX Runtime threads for VAD on CPU; 0 = half of the cores.",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "VadSettings"
       },
       "VerifyResult": {
         "properties": {

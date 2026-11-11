@@ -51,9 +51,8 @@ def test_the_readme_mentions_every_new_entry_point(phrase: str) -> None:
 
 def test_the_readme_says_which_variants_have_no_pins_and_that_rocm_is_unverified() -> None:
     for variant in load_variants().values():
-        family = "rocm-win-gfx*" if variant.id.startswith("rocm-win") else variant.id
-        assert f"`{family}`" in README or family in README, variant.id
+        assert f"`{variant.id}`" in README or variant.id in README, variant.id
     unpinned = [v.id for v in load_variants().values() if not v.installable]
     assert unpinned and "**no pins" in README
-    assert "not verified" in README and "Nothing about ROCm is claimed to work" in README
+    assert "not verified" in README and "not been tested for inference on AMD hardware" in README
     assert "**never run on a GPU**" in README

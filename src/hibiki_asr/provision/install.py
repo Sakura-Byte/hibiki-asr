@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..diagnostics.schema import GpuInfo, HardwareProbe
 from .commands import Command, Installer, Runner, conflicting_distributions
-from .pins import pinned_names, sha256_bytes
+from .pins import pinned_names, runtime_sha256
 from .variants import Variant, get_variant, recommend_variant, setup_command
 
 
@@ -45,10 +45,10 @@ def describe_gpu(gpu: GpuInfo) -> str:
 
 
 def explain_recommendation(probe: HardwareProbe, variant: Variant) -> str:
-    gpus = [g for g in probe.gpus if g.vendor in ("nvidia", "amd")]
+    gpus = [g for g in probe.gpus if g.vendor in ("nvidia", "amd", "apple")]
     if variant.gpu_vendor == "none":
         if not gpus:
-            return "no NVIDIA or AMD GPU was detected"
+            return "no NVIDIA, AMD or Apple GPU was detected"
         return "no GPU runtime fits " + "; ".join(describe_gpu(g) for g in gpus)
     gpu = next(g for g in gpus if g.vendor == variant.gpu_vendor)
     return f"{describe_gpu(gpu)} is served by the {variant.title} runtime"
@@ -115,7 +115,19 @@ def build_plan(
     clashing = conflicting_distributions(pinned_names(data.decode("utf-8")), installed)
     commands = [installer.uninstall(clashing)] if clashing else []
     commands.append(installer.install_locked(lockfile))
-    return SetupPlan(choice.variant, choice.reason, tuple(commands), sha256_bytes(data))
+    if choice.variant.wheel_archive_url:
+        commands.append(
+            Command(
+                (
+                    installer.python,
+                    "-m",
+                    "hibiki_asr.provision.rocm",
+                    choice.variant.id,
+                    *(["--uv", installer.uv] if installer.uv else []),
+                )
+            )
+        )
+    return SetupPlan(choice.variant, choice.reason, tuple(commands), runtime_sha256(choice.variant, data))
 
 
 def execute(plan: SetupPlan, runner: Runner, say: Callable[[str], None] = print) -> int:

@@ -1,8 +1,11 @@
 # hibiki-asr
 
 A local speech recognition engine for [Hibiki / KikoeruGo](https://github.com/Sakura-Byte/KikoeruGo).
-It runs Whisper (through CTranslate2) behind a small HTTP API with **cancellable jobs**, **automatic
-CPU / NVIDIA CUDA / AMD ROCm detection**, and **model and version management**.
+It runs Whisper (through CTranslate2 or MLX) behind a small HTTP API with **cancellable jobs**, **automatic
+CPU / NVIDIA CUDA / AMD ROCm / Apple Silicon detection**, and **model and version management**.
+
+Run it natively on **macOS, Linux or Windows**, or in **Docker** with the CPU or CUDA image. Apple GPU acceleration
+uses MLX and requires native macOS; Docker on a Mac uses the CPU. ROCm remains experimental and unverified.
 
 If a GPU is expected but the engine ends up on the CPU, it tells you why and how to fix it, in the log, in
 `hibiki-asr doctor`, and in every job result.
@@ -34,7 +37,7 @@ The script installs [uv](https://docs.astral.sh/uv/) if it is missing, installs 
 `hibiki-asr setup --variant auto` (which picks the runtime for your hardware and says why) and prints the next steps.
 No sudo. Run it again any time; `HIBIKI_ASR_REF=v0.1.0` pins a tag, branch or commit.
 
-By hand, in any Python environment:
+On macOS, or by hand in any Python environment:
 
 ```bash
 uv tool install "hibiki-asr[runtime] @ git+https://github.com/Sakura-Byte/hibiki-asr"
@@ -65,6 +68,16 @@ restart the engine. `hibiki-asr setup --dry-run` and `service install --dry-run`
 
 ## Runtime variants
 
+| Environment | CPU | NVIDIA GPU | AMD GPU | Apple GPU |
+|---|---|---|---|---|
+| Native macOS (Apple Silicon, macOS 14+) | yes | — | unsupported | MLX |
+| Native Linux x86_64 | yes | CUDA 12 | ROCm, experimental | — |
+| Native Windows x86_64 | yes | CUDA 12 | ROCm, experimental | — |
+| Docker (Linux containers) | amd64 / arm64 | amd64, host GPU access required | amd64, Linux GPU devices required; experimental | — |
+
+These are the runtime routes; GPU hardware validation is listed below. On a Mac, Docker can call a native MLX
+engine instead of running the engine inside the container.
+
 `hibiki-asr setup` installs one pinned, hash-checked set of packages
 ([`provision/lockfiles`](src/hibiki_asr/provision/lockfiles), compiled by `scripts/compile_lockfiles.py`) with
 `uv pip install` (or `python -m pip` when uv is missing), records the choice, and prints the `doctor` report so you see
@@ -73,14 +86,31 @@ never chosen for you and needs `--allow-experimental`.
 
 | Variant | For | Status |
 |---|---|---|
-| `cpu` | any machine (macOS: only Apple Silicon on macOS 14+, the pinned onnxruntime has no other wheel; not tried) | works; installed for real on Linux with Python 3.10 to 3.13 |
+| `cpu` | any machine (macOS: only Apple Silicon on macOS 14+, the pinned onnxruntime has no other wheel) | works; installed for real on Linux with Python 3.10 to 3.13 |
+| `mlx` | Apple Silicon Macs, on the GPU | the CPU runtime plus [mlx-whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper); see below |
 | `cuda12` | NVIDIA, driver 525+, Pascal (RTX 10 series) to Ada (RTX 40) | pins installed for real on Linux (Python 3.11, 3.12) and the CUDA libraries load; **never run on a GPU** |
 | `cuda12-blackwell` | NVIDIA RTX 50 | experimental: the CTranslate2 wheel has no Blackwell kernels (only PTX for `compute_86`), so it relies on the driver's JIT |
 | `cuda11` | older NVIDIA | **no pins**: faster-whisper 1.x needs ctranslate2 4.x, which on PyPI is built for CUDA 12 |
-| `rocm-linux`, `rocm-win-gfx*` | AMD | **no pins, not verified**: CTranslate2's ROCm wheels are GitHub release assets, and the release page could not be reached, so no URL or hash could be checked |
+| `rocm-linux`, `rocm-win-gfx103x`, `rocm-win-gfx110x`, `rocm-win-gfx120x` | AMD RDNA2 / RDNA3 / RDNA4 on Linux or Windows x86_64 | experimental: official CT2 4.9.0 archives are pinned and SHA256-checked; needs a matching ROCm runtime; **GPU inference not verified** |
+| `rocm-win-gfx101x` | AMD RDNA1 | **no pins**: the official 4.9.0 wheels do not include these gfx targets |
 
-`setup --variant rocm-linux` refuses and prints this. `docker/Dockerfile.rocm` is an experimental scaffold that only
-builds if you supply a wheel yourself (see its header). Nothing about ROCm is claimed to work.
+**Apple Silicon.** `--variant auto` picks `mlx` on an Apple Silicon Mac. The model then runs on the GPU through
+MLX; the voice activity detector stays on the CPU. It reads the same CTranslate2 model files as every other variant
+(`worker/ct2_weights.py`), so there is nothing else to download. Two differences from CTranslate2: there is no beam
+search (`beam_size` above 1 is decoded greedily; the default is 1), and the only precisions are `float16` and
+`float32`. This needs the engine to run on macOS itself: a container on a Mac is a Linux virtual machine without
+access to the GPU, so Hibiki in Docker reaches a native engine at `http://host.docker.internal:8001`. Measured once,
+on an M4 with 16 GB and one 3 minute recording through the current pipeline: 27.2 s on MLX 0.32.4 against 60.1 s on
+the CPU (CT2 4.9.0, int8), each returning 61 segments. MLX 0.32.4 corrected two obvious translation errors seen
+with MLX 0.29.3 in an earlier comparison. Output is not guaranteed to match across runtime versions or backends.
+
+**AMD.** After installing the AMD driver and matching ROCm/HIP userspace libraries, opt in with
+`hibiki-asr setup --variant auto --allow-experimental` (or explicitly choose a matching variant).
+Setup installs the CPU baseline, downloads the official CT2 4.9.0 archive, checks its SHA256 and replaces only
+the matching CTranslate2 wheel, even when the version is unchanged. Linux needs ROCm 7.2 libraries on the loader
+path and access to `/dev/kfd` and `/dev/dri`. Windows needs `amdhip64_7.dll` and `hipblas.dll`, found through
+`HIP_PATH` or the `rocm_sdk` packages. The ROCm Docker image supplies the Linux userspace libraries. AMD GPUs
+on macOS are unsupported. These packages have not been tested for inference on AMD hardware.
 
 What was checked while building this, and what was not:
 
@@ -89,8 +119,12 @@ What was checked while building this, and what was not:
   are found only once `hibiki-asr` puts them on `LD_LIBRARY_PATH`/`PATH` (it does, for its own worker); `install.sh`
   end to end from GitHub; `update` on a uv tool; the systemd unit with `systemd-analyze verify`; the Dockerfiles with
   hadolint, the compose file with `docker compose config`, the workflows with actionlint.
-* **Not checked:** any GPU, CUDA or ROCm (there was none); Windows (`install.ps1`, the scheduled task, CUDA DLL
-  lookup); macOS; building a Docker image (no Docker daemon); running the GitHub workflows.
+* **Not checked:** any NVIDIA or AMD GPU, CUDA or ROCm (there was none); Windows (`install.ps1`, the scheduled task,
+  CUDA DLL lookup); macOS other than one Apple Silicon machine (M4, macOS 26, Python 3.12).
+* **Checked later:** the test suite on Windows, Linux and that Mac; CPU images on amd64 and arm64, and CUDA/ROCm
+  images on amd64, including startup, authentication, doctor, runtime settings and audio decoding; the `mlx`
+  variant installed from its lockfile on that Mac and a job run through
+  the HTTP API, including runtime changes and disabling CPU fallback.
 
 ## Docker
 
@@ -106,6 +140,11 @@ release workflow when a `v*` tag is pushed; until then build them: `docker build
 Each image runs the same `hibiki-asr setup --variant <id> --yes` as a bare-metal install, as a non-root user, with
 models in `/data`. An NVIDIA image needs the NVIDIA Container Toolkit on the host (`doctor` says so when the GPU was
 not passed in).
+
+The experimental `rocm` profile uses `-rocm` / `latest-rocm`, with the required device mappings in the compose
+file. Docker GPU access depends on the host: Linux can pass NVIDIA/AMD devices through; Windows needs a
+GPU-capable WSL2/Docker setup and compatible drivers. Docker on macOS has no access to the Apple GPU; use a native
+MLX engine. Building an image does not validate GPU inference on that hardware.
 
 ## Choosing a download source (Hugging Face mirror)
 
@@ -211,7 +250,7 @@ environment variables (`HIBIKI_ASR_VAD__THRESHOLD=0.4` for nested values), overr
 |---|---|---|
 | `host`, `port` | `127.0.0.1`, `8001` | |
 | `token` | none | Bearer token; **required** off loopback |
-| `device` | `auto` | `auto`, `cpu`, `cuda`, `amd` (ROCm is `cuda` to CTranslate2 too) |
+| `device` | `auto` | `auto`, `cpu`, `cuda`, `amd`, `mlx` (ROCm is `cuda` to CTranslate2 too) |
 | `compute_type` | `auto` | e.g. `float16`, `int8_float16`, `int8` |
 | `allow_cpu_fallback` | `true` | retry once on the CPU if the GPU cannot load the model |
 | `idle_unload_seconds` | `600` | free the model and its VRAM when idle (0 = never) |
@@ -220,6 +259,25 @@ environment variables (`HIBIKI_ASR_VAD__THRESHOLD=0.4` for nested values), overr
 | `hf_endpoint`, `hf_mirrors` | huggingface.co, hf-mirror.com | download sources, tried in order |
 | `data_dir`, `models_dir` | per OS | where models live |
 | `vad.*`, `merge.*`, `chunk_target_s`, `generation.*` | upstream defaults | tuning |
+
+Runtime defaults can also be read and changed through the authenticated API, in native and Docker deployments:
+
+```bash
+# Run the same hardware/runtime checks as doctor, without using the diagnostic cache
+curl -H "Authorization: Bearer $HIBIKI_ASR_TOKEN" 'http://127.0.0.1:8001/v1/diagnostics?refresh=true'
+
+curl -H "Authorization: Bearer $HIBIKI_ASR_TOKEN" http://127.0.0.1:8001/v1/settings
+curl -X PATCH -H "Authorization: Bearer $HIBIKI_ASR_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"device":"mlx","allow_cpu_fallback":false,"vad":{"threshold":0.4},"generation":{"beam_size":1}}' \
+  http://127.0.0.1:8001/v1/settings
+```
+
+Only supplied fields change. `vad` and `merge` fields are merged; `generation` replaces the whole map (`{}` resets
+it to engine defaults). Changes apply to future submissions; running and queued jobs keep their original settings.
+They last until the service restarts; use the config file or environment for persistent defaults. Host, port, tokens,
+paths and package installation are not writable through this endpoint. With `allow_cpu_fallback=false`, an expected
+but unavailable GPU or a GPU load failure fails the job instead of running it on the CPU. An explicitly selected
+CPU, or `auto` on a machine with no expected GPU, still runs on the CPU.
 
 ## Cancelling
 
@@ -236,6 +294,7 @@ within an `api_version`; `GET /v1/version` lists `capabilities` clients can rely
 |---|---|
 | `GET /v1/healthz` | up? (no token) |
 | `GET /v1/version`, `GET /v1/diagnostics` | version and capabilities; hardware, device in use, findings |
+| `GET /v1/settings`, `PATCH /v1/settings` | read or change runtime defaults, including `allow_cpu_fallback` |
 | `GET /v1/models`, `POST /v1/models/{id}/versions/{v}/download`, `PUT /v1/models/{id}/active`, ... | list, install (with an optional `endpoint`), switch, verify, delete |
 | `GET /v1/models/sources`, `POST /v1/models/sources/probe` | is Hugging Face reachable directly, which mirror is best, test another one |
 | `POST /v1/jobs` (multipart: `params` + `audio`) | submit audio |
@@ -245,15 +304,17 @@ within an `api_version`; `GET /v1/version` lists `capabilities` clients can rely
 
 ```bash
 uv venv && uv pip install -e ".[runtime,dev]"
-.venv/bin/pytest                          # ~450 tests, none needs a GPU, a model or installs anything
+.venv/bin/pytest                          # ~500 tests; MLX tests skip without MLX, no model downloads or installs
 .venv/bin/ruff check . && .venv/bin/mypy
 python scripts/export_openapi.py          # after changing the API; commit openapi.json
 python scripts/build_catalog.py           # after adding a model version; pins revision + sha256 from Hugging Face
 python scripts/compile_lockfiles.py       # after changing requirements/<variant>.in; needs uv and network access
+python scripts/compile_lockfiles.py --upgrade  # refresh all pins from PyPI to the newest compatible versions
 ```
 
-Adding a runtime variant is a row in `provision/variants.toml`, a `requirements/<id>.in` and its lockfile. CI (ruff,
-mypy, pytest on Linux and Windows, `openapi.json` up to date, the Docker images) is in `.github/workflows`.
+Adding a runtime variant is a row in `provision/variants.toml`, a `requirements/<id>.in` and its lockfile (ROCm shares
+the CPU baseline and adds a pinned official wheel archive). CI (ruff,
+mypy, pytest on Linux, Windows and macOS, `openapi.json` up to date, the Docker images) is in `.github/workflows`.
 
 ## License
 

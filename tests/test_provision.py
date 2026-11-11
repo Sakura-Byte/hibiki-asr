@@ -68,14 +68,10 @@ def test_docker_images_match_the_table() -> None:
 
 def test_what_is_verified_and_what_is_not() -> None:
     by_id = load_variants()
-    assert {v.id for v in by_id.values() if not v.experimental} == {"cpu", "cuda12"}
+    assert {v.id for v in by_id.values() if not v.experimental} == {"cpu", "cuda12", "mlx"}
     assert {v.id for v in by_id.values() if not v.installable} == {
         "cuda11",
-        "rocm-linux",
         "rocm-win-gfx101x",
-        "rocm-win-gfx103x",
-        "rocm-win-gfx110x",
-        "rocm-win-gfx120x",
     }
     assert by_id["cuda12-blackwell"].installable and by_id["cuda12-blackwell"].experimental
 
@@ -86,8 +82,10 @@ def test_setup_command_names_the_flag_an_experimental_install_needs() -> None:
         setup_command(get_variant("cuda12-blackwell"))
         == "hibiki-asr setup --variant cuda12-blackwell --allow-experimental"
     )
-    # nothing to allow: setup explains that no runtime is pinned instead
-    assert setup_command(get_variant("rocm-linux")) == "hibiki-asr setup --variant rocm-linux"
+    assert (
+        setup_command(get_variant("rocm-linux"))
+        == "hibiki-asr setup --variant rocm-linux --allow-experimental"
+    )
 
 
 def test_hints_for_a_blackwell_card_name_the_experimental_flag() -> None:
@@ -129,9 +127,10 @@ def test_every_requirement_is_pinned_and_hashed(variant) -> None:
 
 @pytest.mark.parametrize("variant", INSTALLABLE, ids=lambda v: v.id)
 def test_lockfiles_have_a_source_and_are_compiled_from_it(variant) -> None:
-    source = ROOT / "requirements" / f"{variant.id}.in"
+    source_id = Path(variant.lockfile).stem
+    source = ROOT / "requirements" / f"{source_id}.in"
     assert source.is_file()
-    assert f"uv pip compile requirements/{variant.id}.in --universal" in lockfile_text(variant)
+    assert f"uv pip compile requirements/{source_id}.in --universal" in lockfile_text(variant)
 
 
 def test_a_lockfile_satisfies_the_engines_own_dependencies() -> None:
@@ -195,6 +194,22 @@ def test_compile_command_is_universal_hashed_and_keeps_the_cpu_onnxruntime_out_o
     assert "--no-emit-package" not in cpu
     assert gpu[gpu.index("--no-emit-package") + 1] == "onnxruntime"
     assert gpu[gpu.index("-o") + 1] == "src/hibiki_asr/provision/lockfiles/cuda12.txt"
+    assert "--upgrade" not in cpu
+    assert "--upgrade" in script.compile_command("cpu", "cpu.txt", "onnxruntime>=1.18\n", upgrade=True)
+
+
+def test_the_mlx_lockfile_is_the_cpu_runtime_plus_mlx_without_torch() -> None:
+    script = _load_script("compile_lockfiles")
+    command = script.compile_command("mlx", "mlx.txt", "mlx-whisper>=0.4.3\n")
+    assert command[command.index("--no-emit-package") + 1] == "torch"
+    assert command[command.index("--constraints") + 1] == "src/hibiki_asr/provision/lockfiles/cpu.txt"
+
+    cpu, mlx = pins(lockfile_text(get_variant("cpu"))), pins(lockfile_text(get_variant("mlx")))
+    assert {name: mlx[name] for name in cpu} == cpu  # nothing the CPU runtime has is missing or different
+    assert "mlx" in mlx and "mlx-whisper" in mlx and "torch" not in mlx
+    # MLX exists for Apple Silicon only: on any other machine this lockfile is the CPU runtime
+    for line in re.findall(r"^(?:mlx|mlx-metal|mlx-whisper)==.*$", lockfile_text(get_variant("mlx")), re.M):
+        assert "platform_machine == 'arm64' and sys_platform == 'darwin'" in line
 
 
 def test_compile_script_rejects_a_variant_without_a_lockfile(capsys) -> None:

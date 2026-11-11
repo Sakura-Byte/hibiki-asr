@@ -30,8 +30,18 @@ def format_report(d: Diagnostics) -> str:
             detail = ", ".join(
                 x
                 for x in (
-                    f"driver {gpu.driver}" if gpu.driver else "no usable driver",
-                    f"{gpu.vram_mb} MB" if gpu.vram_mb else "",
+                    f"driver {gpu.driver}"
+                    if gpu.driver
+                    else ""
+                    if gpu.vendor == "apple"
+                    else "no usable driver",
+                    (
+                        f"{gpu.vram_mb} MB shared with the system"
+                        if gpu.vendor == "apple"
+                        else f"{gpu.vram_mb} MB"
+                    )
+                    if gpu.vram_mb
+                    else "",
                     f"compute capability {gpu.compute_capability}" if gpu.compute_capability else "",
                     gpu.gfx or "",
                     "integrated" if gpu.integrated else "",
@@ -49,6 +59,9 @@ def format_report(d: Diagnostics) -> str:
             f"onnxruntime {rt.onnxruntime_version or 'MISSING'} [{providers}]"
         )
         lines.append(f"         CUDA/ROCm devices seen by CTranslate2: {rt.cuda_device_count}")
+        if rt.mlx_version or rt.mlx_error:
+            state = "Metal available" if rt.mlx_gpu else (rt.mlx_error or "Metal NOT available")
+            lines.append(f"         mlx {rt.mlx_version or 'BROKEN'}: {state}")
     else:
         lines.append(f"Runtime  could not be inspected: {rt.probe_error}")
 

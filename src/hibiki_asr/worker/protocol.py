@@ -17,7 +17,7 @@ class RunRequest:
     components: dict[str, str]  # component id -> directory
     language: str
     task: str  # "transcribe" | "translate"
-    device: str  # requested: auto | cpu | cuda | amd
+    device: str  # requested: auto | cpu | cuda | amd | mlx
     compute_type: str
     allow_cpu_fallback: bool
     vad: dict[str, Any]

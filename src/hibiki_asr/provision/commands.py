@@ -64,11 +64,26 @@ class Installer:
     def install_locked(self, lockfile: Path) -> Command:
         # --no-deps: a lockfile is a complete resolution. Without it the installer would add back the
         # dependencies the lockfile leaves out on purpose (the CPU onnxruntime next to onnxruntime-gpu).
+        # The PyPI and ROCm CTranslate2 wheels have the same distribution name/version. Reinstall the baseline
+        # explicitly, or switching back from ROCm can leave a HIP wheel in a CPU/CUDA environment.
         if self.uv:
             return Command(
-                (self.uv, "pip", "install", "--python", self.python, "--no-deps", "-r", str(lockfile))
+                (
+                    self.uv,
+                    "pip",
+                    "install",
+                    "--python",
+                    self.python,
+                    "--no-deps",
+                    "--reinstall-package",
+                    "ctranslate2",
+                    "-r",
+                    str(lockfile),
+                )
             )
-        return Command((self.python, "-m", "pip", "install", "--no-deps", "-r", str(lockfile)))
+        return Command(
+            (self.python, "-m", "pip", "install", "--no-deps", "--force-reinstall", "-r", str(lockfile))
+        )
 
     def uninstall(self, names: Sequence[str]) -> Command:
         if self.uv:

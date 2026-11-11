@@ -23,7 +23,7 @@ class Variant:
     id: str
     title: str
     os: tuple[str, ...]
-    gpu_vendor: str  # "none" | "nvidia" | "amd"
+    gpu_vendor: str  # "none" | "nvidia" | "amd" | "apple"
     lockfile: str  # "" when no verified pins exist
     docker: bool
     min_driver: int | None = None
@@ -33,6 +33,9 @@ class Variant:
     docker_tag: str = ""
     status: str = "stable"
     note: str = ""
+    wheel_archive_url: str = ""
+    wheel_archive_sha256: str = ""
+    wheel_version: str = ""
 
     def supports_os(self, platform: str) -> bool:
         return any(platform.startswith(name) for name in self.os)
@@ -89,6 +92,9 @@ def load_variants() -> dict[str, Variant]:
             docker_tag=row.get("docker_tag", ""),
             status=row.get("status", "stable"),
             note=row.get("note", ""),
+            wheel_archive_url=row.get("wheel_archive_url", ""),
+            wheel_archive_sha256=row.get("wheel_archive_sha256", ""),
+            wheel_version=row.get("wheel_version", ""),
         )
     return variants
 
@@ -146,6 +152,11 @@ def recommend_variant(probe: HardwareProbe, platform: str | None = None) -> Vari
             found = _nvidia_variant(gpu, platform)
         elif gpu.vendor == "amd":
             found = _amd_variant(gpu, platform)
+        elif gpu.vendor == "apple":
+            found = next(
+                (v for v in load_variants().values() if v.gpu_vendor == "apple" and v.supports_os(platform)),
+                None,
+            )
         else:
             found = None
         if found is not None:

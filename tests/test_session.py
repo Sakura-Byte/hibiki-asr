@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from helpers import RTX4090, hw, rt
-from hibiki_asr.diagnostics.schema import Severity
+from hibiki_asr.diagnostics.schema import GpuInfo, Severity
 from hibiki_asr.pipeline.vad import VadInitError
 from hibiki_asr.worker.protocol import Progress, RunCancelled, RunFailed, RunRequest, RunResult
 from hibiki_asr.worker.session import WorkerSession
@@ -67,8 +67,8 @@ class FakeLoaders:
         return self._runtime
 
     def load_model(self, model_dir, device, compute_type, cpu_threads):
-        self.model_loads.append((str(model_dir), device, compute_type))
-        error = self.gpu_error if device == "cuda" else self.cpu_error
+        self.model_loads.append((Path(model_dir).as_posix(), device, compute_type))
+        error = self.gpu_error if device != "cpu" else self.cpu_error
         if error:
             raise RuntimeError(error)
         return FakeModel(device, compute_type)
@@ -196,6 +196,29 @@ def test_with_cpu_fallback_disabled_a_gpu_failure_fails_the_job_with_a_hint() ->
     assert [d for _, d, _ in loaders.model_loads] == ["cuda"]  # no silent CPU attempt
 
 
+def test_disabling_fallback_after_a_previous_failure_does_not_reuse_the_cpu() -> None:
+    loaders = make_loaders(hw(RTX4090), rt(**GPU_OK), gpu_error="out of memory")
+    session = WorkerSession(loaders)
+    assert isinstance(run(session)[0], RunResult)
+    failed, _ = run(session, request(allow_cpu_fallback=False))
+    assert isinstance(failed, RunFailed) and failed.code == "GPU_LOAD_FAILED"
+
+
+def test_a_missing_gpu_is_not_silently_replaced_when_fallback_is_disabled() -> None:
+    loaders = make_loaders(hw(), rt(0))
+    failed, _ = run(WorkerSession(loaders), request(device="cuda", allow_cpu_fallback=False))
+    assert isinstance(failed, RunFailed) and failed.code == "GPU_UNAVAILABLE"
+    assert loaders.model_loads == []
+
+
+def test_changing_thread_counts_reloads_the_model_and_vad() -> None:
+    loaders = make_loaders(hw(), rt(0))
+    session = WorkerSession(loaders)
+    run(session, request(variant="cpu"))
+    run(session, request(variant="cpu", cpu_threads=2, vad_threads=2))
+    assert len(loaders.model_loads) == 2 and loaders.vad_loads == 2
+
+
 def test_asking_for_the_cpu_never_touches_the_gpu() -> None:
     loaders = make_loaders(hw(RTX4090), rt(**GPU_OK))
     result, _ = run(WorkerSession(loaders), request(device="cpu"))
@@ -282,3 +305,43 @@ def test_generation_overrides_reach_the_model() -> None:
     assert seen["beam_size"] == 5 and seen["temperature"] == [0.0, 0.2]
     assert seen["repetition_penalty"] == 1.1 and seen["language"] == "ja" and seen["task"] == "translate"
     assert Path(request().audio_path).name == "a.wav"
+
+
+def test_an_apple_gpu_load_failure_falls_back_to_the_cpu_and_says_so() -> None:
+    probe = hw(GpuInfo(vendor="apple", name="Apple M4 GPU", integrated=True), os="darwin")
+    runtime = rt(mlx_version="0.29.3", mlx_gpu=True)
+    runtime.compute_types["mlx"] = ["float16", "float32"]
+    loaders = make_loaders(probe, runtime, gpu_error="[metal::malloc] Unable to allocate 3 GB: out of memory")
+    session = WorkerSession(loaders)
+
+    first, _ = run(session, request(variant="mlx"))
+    assert isinstance(first, RunResult) and (first.device, first.compute_type, first.degraded) == (
+        "cpu",
+        "int8",
+        True,
+    )
+    fallback = first.findings[0]
+    assert fallback.code == "GPU_LOAD_FAILED_FALLBACK_CPU" and "Apple GPU" in fallback.message
+    assert "Close other programs" in fallback.hint and "int8_float16" not in fallback.hint
+    assert [(d, c) for _, d, c in loaders.model_loads] == [("mlx", "float16"), ("cpu", "int8")]
+
+    run(session, request(variant="mlx"))
+    assert [d for _, d, _ in loaders.model_loads] == [
+        "mlx",
+        "cpu",
+    ]  # the GPU is not tried again for this model
+
+
+def test_a_working_apple_gpu_runs_the_model_on_mlx_and_the_vad_on_the_cpu() -> None:
+    probe = hw(GpuInfo(vendor="apple", name="Apple M4 GPU", integrated=True), os="darwin")
+    runtime = rt(mlx_version="0.29.3", mlx_gpu=True)
+    runtime.compute_types["mlx"] = ["float16", "float32"]
+    result, _ = run(WorkerSession(make_loaders(probe, runtime)), request(variant="mlx"))
+    assert isinstance(result, RunResult)
+    assert (result.device, result.compute_type, result.vad_device, result.degraded) == (
+        "mlx",
+        "float16",
+        "cpu",
+        False,
+    )
+    assert result.findings == []

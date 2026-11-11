@@ -24,7 +24,7 @@ class Finding(BaseModel):
 
 
 class GpuInfo(BaseModel):
-    vendor: Literal["nvidia", "amd", "intel", "other"]
+    vendor: Literal["nvidia", "amd", "intel", "apple", "other"]
     name: str
     vram_mb: int | None = None
     driver: str | None = None
@@ -67,13 +67,20 @@ class RuntimeFacts(BaseModel):
     onnxruntime_error: str | None = None
     faster_whisper_version: str | None = None
     faster_whisper_error: str | None = None
+    mlx_version: str | None = Field(
+        default=None, description="Apple Silicon only: the MLX runtime, when it is installed."
+    )
+    mlx_error: str | None = None
+    mlx_gpu: bool = Field(default=False, description="MLX can use the Apple GPU (Metal).")
 
 
 class Selection(BaseModel):
     """The device and precision the engine will use, and whether that is a step down from what was wanted."""
 
     requested_device: str
-    device: Literal["cuda", "cpu"]
+    device: Literal["cuda", "mlx", "cpu"] = Field(
+        description="cuda: NVIDIA or AMD through CTranslate2. mlx: the Apple GPU through MLX. cpu: CTranslate2."
+    )
     compute_type: str
     degraded: bool = Field(
         description="A GPU was expected (requested, or present under 'auto') but the CPU is used."

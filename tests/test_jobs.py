@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import queue
 import threading
 import time
@@ -218,6 +219,22 @@ def test_a_degraded_result_carries_its_findings(harness) -> None:
     h = harness(lambda w, r: w.emit(result(r, degraded=True)))
     status = h.wait(h.submit())
     assert status.result.runtime.degraded and status.result.runtime.findings[0].code == "CPU_ONLY"
+
+
+def test_a_result_from_any_device_the_worker_can_select_is_reported(harness) -> None:
+    from typing import get_args
+
+    from hibiki_asr.diagnostics.schema import Selection
+    from hibiki_asr.jobs.schema import RuntimeInfo
+
+    devices = get_args(Selection.model_fields["device"].annotation)
+    assert (
+        set(devices) == set(get_args(RuntimeInfo.model_fields["device"].annotation)) == {"cuda", "mlx", "cpu"}
+    )
+    for device in devices:
+        h = harness(lambda w, r, device=device: w.emit(dataclasses.replace(result(r), device=device)))
+        status = h.wait(h.submit())
+        assert status.state is JobState.succeeded and status.result.runtime.device == device
 
 
 def test_progress_is_monotonic_and_visible_while_running(harness) -> None:

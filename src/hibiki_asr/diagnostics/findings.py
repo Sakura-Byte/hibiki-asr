@@ -33,12 +33,17 @@ def _switch_hint(target: Variant, probe: HardwareProbe) -> str:
         prefix = "This engine is running in a container built for a different runtime. "
         if target.docker:
             return f"{prefix}Use the {target.docker_tag} image instead: {IMAGE}:latest-{target.docker_tag}"
-        args = " --build-arg HIBIKI_ASR_SETUP_ARGS=--allow-experimental" if target.experimental else ""
+        args = " --build-arg SETUP_ARGS=--allow-experimental" if target.experimental else ""
         return (
             f"{prefix}No {target.id} image is published; build one: `docker build -f "
-            f"docker/Dockerfile.{_DOCKERFILE[target.gpu_vendor]} --build-arg HIBIKI_ASR_VARIANT={target.id}{args} .`"
+            f"docker/Dockerfile.{_DOCKERFILE.get(target.gpu_vendor, 'cpu')} --build-arg HIBIKI_ASR_VARIANT={target.id}{args} .`"
         )
     return f"Install the {target.title} runtime with `{setup_command(target)}` and restart the engine."
+
+
+def _vendor_of(variant: str) -> str:
+    found = load_variants().get(variant)
+    return found.gpu_vendor if found is not None else "none"
 
 
 def _gpus(probe: HardwareProbe, vendor: str) -> list[GpuInfo]:
@@ -267,6 +272,46 @@ def evaluate_findings(
             )
             break
 
+    # ---- Apple Silicon ------------------------------------------------------------------------
+    apple = _gpus(probe, "apple")
+    mlx_wanted = selection.requested_device == "mlx" or (
+        selection.requested_device == "auto" and variant is not None and _vendor_of(variant) == "apple"
+    )
+    if mlx_wanted and not runtime.mlx_gpu and runtime.probe_ok:
+        if not apple:
+            reason = "MLX only runs on Apple Silicon Macs (and not inside a container)"
+        elif runtime.mlx_error:
+            reason = f"MLX failed to load: {runtime.mlx_error}"
+        elif runtime.mlx_version is None:
+            reason = "the MLX runtime is not installed"
+        else:
+            reason = "MLX reports that Metal is not available"
+        add(
+            Finding(
+                code="MLX_UNAVAILABLE",
+                severity=Severity.warning if not apple else Severity.error,
+                message=f"The Apple GPU cannot be used: {reason}.",
+                hint=(
+                    f"Install the MLX runtime with `{setup_command(get_variant('mlx'))}` and restart the engine."
+                    if apple
+                    else "Set HIBIKI_ASR_DEVICE=auto."
+                ),
+            )
+        )
+    apple_idle = bool(
+        apple and selection.device == "cpu" and selection.requested_device == "auto" and not mlx_wanted
+    )
+    if apple_idle:
+        add(
+            Finding(
+                code="APPLE_GPU_NOT_USED",
+                severity=Severity.info,
+                message=f"{apple[0].name} is not used: the CPU runtime is installed.",
+                hint=f"The MLX runtime runs the model on the GPU, a few times faster: `{setup_command(get_variant('mlx'))}`, "
+                "then restart the engine.",
+            )
+        )
+
     # ---- what was selected ------------------------------------------------------------------
     if selection.device == "cpu" and not selection.degraded:
         add(
@@ -274,7 +319,11 @@ def evaluate_findings(
                 code="CPU_ONLY",
                 severity=Severity.info,
                 message="Running on the CPU."
-                + ("" if selection.requested_device == "cpu" else " No supported GPU was detected."),
+                + (
+                    ""
+                    if selection.requested_device == "cpu" or apple_idle
+                    else " No supported GPU was detected."
+                ),
                 hint="Large models run slower than real time on a CPU; a supported GPU makes a big difference.",
             )
         )

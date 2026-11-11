@@ -49,3 +49,6 @@ class SystemAccess:
 
     def is_linux(self) -> bool:
         return self.platform.startswith("linux")
+
+    def is_apple_silicon(self) -> bool:
+        return self.platform == "darwin" and self.machine == "arm64"

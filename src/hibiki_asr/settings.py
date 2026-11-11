@@ -72,19 +72,12 @@ class MergeSettings(BaseModel):
     max_duration_ms: int = Field(20000, ge=1)
 
 
-class Settings(BaseModel):
+class RuntimeSettings(BaseModel):
+    """Inference and queue settings that can be changed while the service is running."""
+
     model_config = ConfigDict(extra="forbid")
 
-    host: str = "127.0.0.1"
-    port: int = Field(DEFAULT_PORT, ge=1, le=65535)
-    token: str | None = Field(
-        None, description="Bearer token. Required when listening on a non-loopback address."
-    )
-
-    data_dir: Path = Field(default_factory=default_data_dir)
-    models_dir: Path | None = Field(None, description="Defaults to <data_dir>/models.")
-
-    device: Literal["auto", "cpu", "cuda", "amd"] = "auto"
+    device: Literal["auto", "cpu", "cuda", "amd", "mlx"] = "auto"
     compute_type: str = "auto"
     allow_cpu_fallback: bool = True
 
@@ -106,6 +99,22 @@ class Settings(BaseModel):
         description="Extra faster-whisper transcribe() arguments, merged over the defaults.",
     )
 
+    @field_validator("device", mode="before")
+    @classmethod
+    def _device_case(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class Settings(RuntimeSettings):
+    host: str = "127.0.0.1"
+    port: int = Field(DEFAULT_PORT, ge=1, le=65535)
+    token: str | None = Field(
+        None, description="Bearer token. Required when listening on a non-loopback address."
+    )
+
+    data_dir: Path = Field(default_factory=default_data_dir)
+    models_dir: Path | None = Field(None, description="Defaults to <data_dir>/models.")
+
     # Where models are downloaded from. `hf_endpoint` is tried first, then each of `hf_mirrors`.
     # In regions where Hugging Face is slow or blocked, set `hf_endpoint` to a mirror such as https://hf-mirror.com.
     # The standard HF_ENDPOINT and HF_TOKEN environment variables are honoured too.
@@ -117,11 +126,6 @@ class Settings(BaseModel):
     )
     catalog_url: str = DEFAULT_CATALOG_URL
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-
-    @field_validator("device", mode="before")
-    @classmethod
-    def _device_case(cls, value: object) -> object:
-        return value.strip().lower() if isinstance(value, str) else value
 
     @field_validator("log_level", mode="before")
     @classmethod

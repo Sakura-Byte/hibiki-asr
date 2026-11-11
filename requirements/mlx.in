@@ -1,0 +1,17 @@
+# Runtime of the `mlx` variant (Apple Silicon: Whisper on the GPU through MLX). Compiled into lockfiles/mlx.txt by
+# scripts/compile_lockfiles.py; edit here, never in the .txt.
+#
+# * Everything the `cpu` variant has: faster-whisper still decodes the audio and is the CPU fallback, and
+#   onnxruntime runs the VAD.
+# * mlx-whisper runs the model. worker/mlx_backend.py reaches into its decoder (logit filters, the model holder),
+#   so it is held to the 0.4 series that was tried.
+# * mlx-whisper depends on torch only for its own checkpoint converter, which the engine never imports (it reads
+#   the CTranslate2 weights itself). scripts/compile_lockfiles.py leaves torch out of the lockfile.
+numpy>=1.26
+faster-whisper>=1.1,<2
+# av 19 removed the `metadata_errors` argument that faster-whisper 1.2.1 passes to av.open(), so every decode fails
+# with it (faster-whisper only asks for av>=11). Drop the cap once a faster-whisper release works with av 19.
+av<19
+onnxruntime>=1.18,<1.24; python_version < "3.11"
+onnxruntime>=1.18; python_version >= "3.11"
+mlx-whisper>=0.4.3,<0.5; sys_platform == "darwin" and platform_machine == "arm64"

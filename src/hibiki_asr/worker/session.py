@@ -62,9 +62,9 @@ class WorkerSession:
         self._loaders = loaders
         self._probe: HardwareProbe | None = None
         self._runtime: RuntimeFacts | None = None
-        self._loaded: dict[tuple[str, str, str], _Loaded] = {}
-        self._vad: dict[tuple[str, str, bool], SpeechDetector] = {}
-        self._gpu_broken: dict[str, str] = {}  # model dir -> why the GPU could not load it
+        self._loaded: dict[tuple[str, str, str, int], _Loaded] = {}
+        self._vad: dict[tuple[str, str, bool, int], SpeechDetector] = {}
+        self._gpu_broken: dict[tuple[str, str, str], str] = {}  # model/device/precision -> load failure
 
     def _facts(self) -> tuple[HardwareProbe, RuntimeFacts]:
         if self._probe is None or self._runtime is None:
@@ -78,39 +78,55 @@ class WorkerSession:
     ) -> _Loaded:
         model_dir = Path(req.model_dir)
         device, compute = selection.device, selection.compute_type
+        gpu_key = (req.model_dir, device, compute)
 
-        if device == "cuda" and req.model_dir in self._gpu_broken:
+        if device != "cpu" and gpu_key in self._gpu_broken:
             # The GPU already failed for this model in this worker; do not pay for another failed attempt.
+            if not req.allow_cpu_fallback:
+                raise _GpuLoadFailed(self._gpu_broken[gpu_key])
             device = "cpu"
             compute = pick_compute_type("cpu", runtime.compute_types.get("cpu", []), req.compute_type, None)
-            dynamic.append(self._fallback_finding(self._gpu_broken[req.model_dir]))
+            dynamic.append(self._fallback_finding(self._gpu_broken[gpu_key], selection.device))
 
-        key = (req.model_dir, device, compute)
+        key = (req.model_dir, device, compute, req.cpu_threads)
         if key in self._loaded:
             return self._loaded[key]
 
         try:
             model = self._loaders.load_model(model_dir, device, compute, req.cpu_threads)
         except Exception as exc:
-            if device != "cuda":
+            if device == "cpu":
                 raise
             reason = f"{type(exc).__name__}: {exc}"
             if not req.allow_cpu_fallback:
                 raise _GpuLoadFailed(reason) from exc
             logger.warning("loading %s on the GPU failed (%s); retrying on the CPU", req.model_ref, reason)
-            self._gpu_broken[req.model_dir] = reason
-            dynamic.append(self._fallback_finding(reason))
+            self._gpu_broken[gpu_key] = reason
+            dynamic.append(self._fallback_finding(reason, selection.device))
             device = "cpu"
             compute = pick_compute_type("cpu", runtime.compute_types.get("cpu", []), req.compute_type, None)
             model = self._loaders.load_model(model_dir, device, compute, req.cpu_threads)
 
         # Only one model stays resident: keeping several multi-GB models around would exhaust memory.
-        self._loaded = {(req.model_dir, device, compute): _Loaded(model, device, compute)}
-        return self._loaded[(req.model_dir, device, compute)]
+        key = (req.model_dir, device, compute, req.cpu_threads)
+        self._loaded = {key: _Loaded(model, device, compute)}
+        return self._loaded[key]
 
     @staticmethod
-    def _fallback_finding(reason: str) -> Finding:
+    def _fallback_finding(reason: str, device: str = "cuda") -> Finding:
         oom = _looks_like_oom(reason)
+        if device == "mlx":
+            return Finding(
+                code="GPU_LOAD_FAILED_FALLBACK_CPU",
+                severity=Severity.warning,
+                message=f"Loading the model on the Apple GPU failed, so the CPU is used instead: {reason}",
+                hint=(
+                    "The Mac ran out of memory, which the GPU shares with everything else. Close other programs."
+                    if oom
+                    else "Run `hibiki-asr doctor` for the likely cause. Set HIBIKI_ASR_ALLOW_CPU_FALLBACK=false to "
+                    "fail instead of falling back."
+                ),
+            )
         return Finding(
             code="GPU_LOAD_FAILED_FALLBACK_CPU",
             severity=Severity.warning,
@@ -126,7 +142,7 @@ class WorkerSession:
 
     def _acquire_vad(self, req: RunRequest, prefer_gpu: bool) -> SpeechDetector:
         vad_dir, feature_dir = req.components["vad-asr"], req.components["whisper-base-fe"]
-        key = (vad_dir, feature_dir, prefer_gpu)
+        key = (vad_dir, feature_dir, prefer_gpu, req.vad_threads)
         if key not in self._vad:
             self._vad = {
                 key: self._loaders.load_vad(Path(vad_dir), Path(feature_dir), prefer_gpu, req.vad_threads)
@@ -158,6 +174,14 @@ class WorkerSession:
         probe, runtime = self._facts()
         selection = select_runtime(probe, runtime, req.device, req.compute_type, req.variant)
         dynamic: list[Finding] = []
+
+        if selection.degraded and not req.allow_cpu_fallback:
+            return RunFailed(
+                "GPU_UNAVAILABLE",
+                "A GPU was requested but is unavailable, and CPU fallback is disabled.",
+                "Run `hibiki-asr doctor` to fix the GPU runtime, or enable allow_cpu_fallback.",
+                self._findings(probe, runtime, selection, req, dynamic),
+            )
 
         emit(Progress("loading", 0.0, "loading the model"))
         try:

@@ -34,6 +34,7 @@ from ..models.schema import (
     SourcesResponse,
     VerifyResult,
 )
+from ..settings import RuntimeSettings
 from .schema import ErrorResponse, Health, VersionInfo
 
 CAPABILITIES = [
@@ -41,6 +42,7 @@ CAPABILITIES = [
     "job-cancel",
     "job-upload",
     "diagnostics",
+    "runtime-settings",
     "models",
     "model-versions",
     "model-download",
@@ -161,6 +163,30 @@ def create_app(engine: Engine) -> FastAPI:
     def diagnostics(refresh: bool = False) -> Diagnostics:
         return engine.diagnostics(refresh=refresh)
 
+    @app.get(
+        "/v1/settings",
+        tags=["settings"],
+        response_model=RuntimeSettings,
+        dependencies=protected,
+        summary="Current runtime defaults (no secrets)",
+    )
+    def runtime_settings() -> RuntimeSettings:
+        return engine.runtime_settings()
+
+    @app.patch(
+        "/v1/settings",
+        tags=["settings"],
+        response_model=RuntimeSettings,
+        dependencies=protected,
+        summary="Change defaults for future jobs without restarting",
+        description=(
+            "Only supplied fields change. VAD and merge fields are merged; generation replaces the whole map "
+            "(use {} to reset it). Submitted jobs retain their settings. Changes last until the service restarts."
+        ),
+    )
+    def update_runtime_settings(patch: RuntimeSettings) -> RuntimeSettings:
+        return engine.update_runtime_settings(patch)
+
     # -- models -----------------------------------------------------------------------------------
 
     models = engine.models
@@ -272,6 +298,7 @@ def create_app(engine: Engine) -> FastAPI:
     # -- jobs -------------------------------------------------------------------------------------
 
     def _save_upload(upload: UploadFile, job_id: str) -> Path:
+        settings = engine.settings
         suffix = Path(upload.filename or "").suffix.lower()
         suffix = suffix if _SAFE_SUFFIX.match(suffix) else ""
         directory = settings.data_dir / "jobs" / job_id

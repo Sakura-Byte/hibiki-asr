@@ -47,7 +47,7 @@ def test_images_run_the_same_setup_as_a_bare_metal_install(tag: str) -> None:
     variant = get_variant(IMAGES[tag][1])
     assert f"ARG HIBIKI_ASR_VARIANT={variant.id}" in text
     assert variant.installable and not variant.experimental  # a default that `setup` accepts without a flag
-    assert 'hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${HIBIKI_ASR_SETUP_ARGS}' in text
+    assert 'hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${SETUP_ARGS}' in text
     assert 'HIBIKI_ASR_VARIANT="${HIBIKI_ASR_VARIANT}"' in text  # what the engine reads at run time
     assert ".[runtime]" in text  # the API process needs numpy to start; setup pins the rest
 
@@ -86,12 +86,11 @@ def test_the_health_check_calls_an_endpoint_the_api_has() -> None:
 def test_the_rocm_image_says_it_is_experimental_and_unverified_and_what_it_needs() -> None:
     header = dockerfile("rocm").split("ARG ROCM_IMAGE", 1)[0]
     assert "EXPERIMENTAL" in header and "NOT VERIFIED" in header
-    assert "CT2_ROCM_WHEEL" in header and "CT2_ROCM_SHA256" in header
+    assert "SHA256" in header and "official" in header
     text = instructions(dockerfile("rocm"))
-    assert "sha256sum -c" in text  # the wheel is checked before it is installed
-    assert "hibiki-asr setup --variant cpu --yes" in text  # the verified path; only ctranslate2 is replaced
+    assert "hibiki-asr setup --variant rocm-linux --yes --allow-experimental" in text
     assert "HIBIKI_ASR_VARIANT=rocm-linux" in text
-    assert not get_variant("rocm-linux").installable  # which is why the image cannot use `setup` for it
+    assert get_variant("rocm-linux").installable and get_variant("rocm-linux").wheel_archive_sha256
 
 
 def test_dockerignore_keeps_what_the_dockerfiles_copy() -> None:
@@ -111,7 +110,7 @@ def test_dockerignore_keeps_what_the_dockerfiles_copy() -> None:
 
 def test_the_hint_for_building_a_blackwell_image_names_arguments_the_dockerfile_has() -> None:
     text = instructions(dockerfile("cuda"))
-    assert "ARG HIBIKI_ASR_VARIANT=" in text and "ARG HIBIKI_ASR_SETUP_ARGS=" in text
+    assert "ARG HIBIKI_ASR_VARIANT=" in text and "ARG SETUP_ARGS=" in text
 
 
 # --- compose ------------------------------------------------------------------------------------------

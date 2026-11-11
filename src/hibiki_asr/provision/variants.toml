@@ -10,7 +10,7 @@
 #   id           stable identifier (also the docker tag suffix and `--variant` value)
 #   title        human readable name
 #   os           operating systems (sys.platform prefixes: linux, win32, darwin)
-#   gpu_vendor   "none" | "nvidia" | "amd"
+#   gpu_vendor   "none" | "nvidia" | "amd" | "apple"
 #   min_driver   NVIDIA only: minimum driver major version the CUDA build needs
 #   min_cc       NVIDIA only: minimum compute capability (cuda12: the CTranslate2 wheel carries GPU code from sm_60)
 #   min_cc_max   NVIDIA only: this build is meant for cards up to this compute capability (exclusive)
@@ -31,6 +31,14 @@ gpu_vendor = "none"
 lockfile = "cpu.txt"
 docker = true
 docker_tag = "cpu"
+
+[[variant]]
+id = "mlx"
+title = "Apple Silicon GPU (MLX)"
+os = ["darwin"]
+gpu_vendor = "apple"
+lockfile = "mlx.txt"
+docker = false
 
 [[variant]]
 id = "cuda11"
@@ -84,11 +92,14 @@ id = "rocm-win-gfx103x"
 title = "AMD ROCm on Windows (RDNA2: RX 6000 series)"
 os = ["win32"]
 gpu_vendor = "amd"
-gfx = ["gfx1030", "gfx1031", "gfx1032", "gfx1034"]
-lockfile = ""
+gfx = ["gfx1030", "gfx1031", "gfx1032", "gfx1035"]
+lockfile = "cpu.txt"
+wheel_archive_url = "https://github.com/OpenNMT/CTranslate2/releases/download/v4.9.0/rocm-python-wheels-Windows.zip"
+wheel_archive_sha256 = "99cbc7210f035d04ed2f38aa653e79b2b1dcc90cb7503af72d880785b66b7f84"
+wheel_version = "4.9.0"
 docker = false
 status = "experimental"
-note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+note = "The official CTranslate2 4.9.0 archive and SHA256 were checked. Install a matching ROCm/HIP runtime first (amdhip64_7.dll and hipblas.dll must load; HIP_PATH or the rocm_sdk packages supply the DLL directories). This has not been run on an AMD GPU."
 
 [[variant]]
 id = "rocm-win-gfx110x"
@@ -96,10 +107,13 @@ title = "AMD ROCm on Windows (RDNA3: RX 7000 series)"
 os = ["win32"]
 gpu_vendor = "amd"
 gfx = ["gfx1100", "gfx1101", "gfx1102", "gfx1103"]
-lockfile = ""
+lockfile = "cpu.txt"
+wheel_archive_url = "https://github.com/OpenNMT/CTranslate2/releases/download/v4.9.0/rocm-python-wheels-Windows.zip"
+wheel_archive_sha256 = "99cbc7210f035d04ed2f38aa653e79b2b1dcc90cb7503af72d880785b66b7f84"
+wheel_version = "4.9.0"
 docker = false
 status = "experimental"
-note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+note = "The official CTranslate2 4.9.0 archive and SHA256 were checked. Install a matching ROCm/HIP runtime first (amdhip64_7.dll and hipblas.dll must load; HIP_PATH or the rocm_sdk packages supply the DLL directories). This has not been run on an AMD GPU."
 
 [[variant]]
 id = "rocm-win-gfx120x"
@@ -107,19 +121,25 @@ title = "AMD ROCm on Windows (RDNA4: RX 9000 series)"
 os = ["win32"]
 gpu_vendor = "amd"
 gfx = ["gfx1200", "gfx1201"]
-lockfile = ""
+lockfile = "cpu.txt"
+wheel_archive_url = "https://github.com/OpenNMT/CTranslate2/releases/download/v4.9.0/rocm-python-wheels-Windows.zip"
+wheel_archive_sha256 = "99cbc7210f035d04ed2f38aa653e79b2b1dcc90cb7503af72d880785b66b7f84"
+wheel_version = "4.9.0"
 docker = false
 status = "experimental"
-note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+note = "The official CTranslate2 4.9.0 archive and SHA256 were checked. Install a matching ROCm/HIP runtime first (amdhip64_7.dll and hipblas.dll must load; HIP_PATH or the rocm_sdk packages supply the DLL directories). This has not been run on an AMD GPU."
 
 [[variant]]
 id = "rocm-linux"
 title = "AMD ROCm on Linux"
 os = ["linux"]
 gpu_vendor = "amd"
-gfx = ["gfx1010", "gfx1011", "gfx1012", "gfx1030", "gfx1031", "gfx1032", "gfx1034", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1200", "gfx1201"]
-lockfile = ""
+gfx = ["gfx1030", "gfx1031", "gfx1032", "gfx1035", "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1200", "gfx1201"]
+lockfile = "cpu.txt"
+wheel_archive_url = "https://github.com/OpenNMT/CTranslate2/releases/download/v4.9.0/rocm-python-wheels-Linux.zip"
+wheel_archive_sha256 = "0a9ad24145fe671628d7524602241b3743a12d1487489f075f5de91f68aa2837"
+wheel_version = "4.9.0"
 docker = true
 docker_tag = "rocm"
 status = "experimental"
-note = "No pinned runtime exists. CTranslate2 with ROCm support is not on PyPI: the ctranslate2 package description says the AMD wheels are on the CTranslate2 GitHub releases page, which could not be reached when this release was prepared (github.com answered 403), so no wheel URL, hash or ROCm version was verified."
+note = "The official CTranslate2 4.9.0 archive and SHA256 were checked. Native Linux needs ROCm 7.2 runtime libraries in the loader path and access to /dev/kfd and /dev/dri; the Docker image supplies the userspace libraries. This has not been run on an AMD GPU."

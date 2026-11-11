@@ -45,8 +45,8 @@ class Segment(BaseModel):
 
 
 class RuntimeInfo(BaseModel):
-    device: Literal["cuda", "cpu"] = Field(
-        description="What actually ran the model ('cuda' also means ROCm/HIP)."
+    device: Literal["cuda", "mlx", "cpu"] = Field(
+        description="What actually ran the model ('cuda' also means ROCm/HIP, 'mlx' is the Apple GPU)."
     )
     compute_type: str
     vad_device: Literal["cuda", "cpu"]

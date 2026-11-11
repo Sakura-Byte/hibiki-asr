@@ -45,7 +45,7 @@ def world(tmp_path: Path):
 
 def store_files(world: World, ref: Ref) -> list[str]:
     root = world.store.version_dir(ref)
-    return sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
 
 
 def nothing_installed(world: World, ref: Ref) -> bool:

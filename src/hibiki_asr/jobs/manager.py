@@ -51,6 +51,7 @@ class _Job:
     audio_path: Path
     variant: str | None
     created_at: float
+    settings: Settings
     state: JobState = JobState.queued
     stage: str = "queued"
     progress: float = 0.0
@@ -89,6 +90,12 @@ class JobManager:
 
     # -- public ---------------------------------------------------------------------------------------
 
+    def configure(self, settings: Settings) -> None:
+        """Replace defaults atomically; jobs already submitted keep their own snapshot."""
+        with self._cond:
+            self._settings = settings
+            self._cond.notify_all()
+
     def submit(
         self,
         model: ResolvedModel,
@@ -109,6 +116,7 @@ class JobManager:
             audio_path=audio_path,
             variant=variant,
             created_at=now,
+            settings=self._settings.model_copy(deep=True),
             updated_at=now,
         )
         with self._cond:
@@ -131,7 +139,6 @@ class JobManager:
             if job.state is JobState.queued:
                 self._queue.remove(job.id)
                 self._finish(job, JobState.cancelled, message="cancelled before it started")
-                self._discard_audio(job)
             else:
                 job.state = JobState.cancelling
                 job.message = "cancelling"
@@ -160,7 +167,6 @@ class JobManager:
                 if job.state is JobState.queued:
                     self._queue.remove(job.id)
                     self._finish(job, JobState.cancelled, message="the engine is shutting down")
-                    self._discard_audio(job)
             self._cond.notify_all()
         self._thread.join(timeout=15)
         self._drop_worker(graceful=True)
@@ -206,6 +212,9 @@ class JobManager:
         job.stage = "done" if state is JobState.succeeded else job.stage
         job.progress = 1.0 if state is JobState.succeeded else job.progress
         job.updated_at = job.finished_at = self._wall()
+        # Before done is set: whoever sees the job end must also see its upload gone. Every final state is reached
+        # once the worker is through with the file (it answered, crashed, was killed or never started).
+        self._discard_audio(job)
         job.done.set()
 
     @staticmethod
@@ -285,7 +294,7 @@ class JobManager:
             worker.kill()
 
     def _request_for(self, job: _Job) -> RunRequest:
-        s = self._settings
+        s = job.settings
         return RunRequest(
             job_id=job.id,
             audio_path=str(job.audio_path),
@@ -320,7 +329,7 @@ class JobManager:
                         error=JobError(code="INTERNAL_ERROR", message=str(exc)),
                     )
         finally:
-            self._discard_audio(job)
+            self._discard_audio(job)  # again, in case the first attempt met a file the worker still held
             with self._cond:
                 self._last_activity = self._clock()
                 if job.state not in TERMINAL_STATES:  # defensive: never leave a job dangling
@@ -357,7 +366,7 @@ class JobManager:
                 cancelling = job.cancel_requested
             if cancelling and cancel_deadline is None:
                 worker.request_cancel()
-                cancel_deadline = self._clock() + self._settings.cancel_grace_seconds
+                cancel_deadline = self._clock() + job.settings.cancel_grace_seconds
 
             message = worker.poll(POLL_SECONDS)
 
@@ -369,7 +378,7 @@ class JobManager:
                     logger.warning(
                         "job %s ignored the cancel request for %.0fs: killing the worker",
                         job.id,
-                        self._settings.cancel_grace_seconds,
+                        job.settings.cancel_grace_seconds,
                     )
                     self._drop_worker(graceful=False)
                     with self._cond:

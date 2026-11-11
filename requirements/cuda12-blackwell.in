@@ -2,6 +2,9 @@
 # (the first with Blackwell support). Compiled into lockfiles/cuda12-blackwell.txt by scripts/compile_lockfiles.py.
 numpy>=1.26
 faster-whisper>=1.1,<2
+# av 19 removed the `metadata_errors` argument that faster-whisper 1.2.1 passes to av.open(), so every decode fails
+# with it (faster-whisper only asks for av>=11). Drop the cap once a faster-whisper release works with av 19.
+av<19
 onnxruntime-gpu[cuda,cudnn]>=1.21,<1.24; python_version < "3.11"
 onnxruntime-gpu[cuda,cudnn]>=1.21,<1.27; python_version >= "3.11"
 nvidia-cublas-cu12>=12.8

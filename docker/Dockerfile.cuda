@@ -7,7 +7,7 @@
 #
 # The host needs an NVIDIA driver (525 or newer) and the NVIDIA Container Toolkit. RTX 50 cards need the
 # experimental Blackwell runtime: add
-#   --build-arg HIBIKI_ASR_VARIANT=cuda12-blackwell --build-arg HIBIKI_ASR_SETUP_ARGS=--allow-experimental
+#   --build-arg HIBIKI_ASR_VARIANT=cuda12-blackwell --build-arg SETUP_ARGS=--allow-experimental
 #
 # Why a plain Python image and not nvidia/cuda: the runtime needs libcuda.so.1 from the host driver, which the
 # NVIDIA Container Toolkit injects into any image, and CUDA 12 libraries, which the lockfile installs as pip wheels:
@@ -24,11 +24,14 @@
 
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 
+# The tag is pinned in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
 FROM ${PYTHON_IMAGE} AS build
 ARG HIBIKI_ASR_VARIANT=cuda12
-ARG HIBIKI_ASR_SETUP_ARGS=
+# Not HIBIKI_ASR_*: a build argument is in the environment of RUN, and the engine refuses unknown HIBIKI_ASR_ settings.
+ARG SETUP_ARGS=
 # uv installs the runtime (setup uses it when it is on PATH); it stays in this stage.
-RUN pip install --no-cache-dir uv==0.8.17
+RUN pip install --no-cache-dir uv==0.13.7
 WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src ./src
@@ -36,8 +39,10 @@ COPY src ./src
 # hadolint ignore=SC2086
 RUN uv venv /opt/venv \
  && uv pip install --python /opt/venv/bin/python ".[runtime]" \
- && HIBIKI_ASR_DATA_DIR=/tmp/setup-state /opt/venv/bin/hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${HIBIKI_ASR_SETUP_ARGS}
+ && HIBIKI_ASR_DATA_DIR=/tmp/setup-state /opt/venv/bin/hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${SETUP_ARGS}
 
+# The tag is pinned in the ARG above, which hadolint cannot see.
+# hadolint ignore=DL3006
 FROM ${PYTHON_IMAGE}
 ARG HIBIKI_ASR_VARIANT=cuda12
 RUN groupadd --gid 10001 hibiki \

@@ -75,7 +75,7 @@ def test_ci_fails_when_openapi_json_is_stale() -> None:
 def test_ci_builds_the_images_it_can_and_checks_that_they_start() -> None:
     job = load("ci")["jobs"]["docker"]
     tags = {entry["tag"]: entry["dockerfile"] for entry in job["strategy"]["matrix"]["include"]}
-    assert tags == {"cpu": "docker/Dockerfile.cpu", "cuda": "docker/Dockerfile.cuda"}  # rocm cannot be built
+    assert tags == {tag: f"docker/Dockerfile.{tag}" for tag in ("cpu", "cuda", "rocm")}
     text = commands(job)
     assert "HIBIKI_ASR_TOKEN=ci" in text and "/v1/healthz" in text and "hibiki-asr doctor" in text
     for dockerfile in tags.values():
@@ -131,16 +131,16 @@ def test_release_pushes_versioned_and_latest_tags_of_the_image_the_findings_name
     assert "packages" in workflow["permissions"] and workflow["permissions"]["packages"] == "write"
 
 
-def test_the_rocm_image_is_built_only_when_a_wheel_was_configured_and_gets_the_arguments_it_needs() -> None:
+def test_the_rocm_image_uses_its_pinned_archive_and_gets_the_base_image_argument() -> None:
     job = load("release")["jobs"]["docker"]
     rocm = next(e for e in job["strategy"]["matrix"]["include"] if e["tag"] == "rocm")
     dockerfile = (ROOT / rocm["dockerfile"]).read_text(encoding="utf-8")
     passed = dict(line.split("=", 1) for line in rocm["build_args"].splitlines() if line)
-    assert set(passed) == {"CT2_ROCM_WHEEL", "CT2_ROCM_SHA256", "ROCM_IMAGE"}
+    assert set(passed) == {"ROCM_IMAGE"}
     for name in passed:
         assert f"ARG {name}" in dockerfile
     build = next(s for s in steps(job) if s.get("name") == "Build and push")
-    assert build["if"] == "${{ !matrix.experimental || vars.CT2_ROCM_WHEEL != '' }}"
+    assert "if" not in build
     assert build["with"]["build-args"] == "${{ matrix.build_args }}"
     default_image = re.search(r"ARG ROCM_IMAGE=(\S+)", dockerfile)
     assert (

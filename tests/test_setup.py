@@ -57,7 +57,7 @@ def test_auto_follows_the_hardware_and_says_why() -> None:
     )
 
     choice = choose(hw())
-    assert choice.variant.id == "cpu" and "no NVIDIA or AMD GPU was detected" in choice.reason
+    assert choice.variant.id == "cpu" and "no NVIDIA, AMD or Apple GPU was detected" in choice.reason
 
 
 def test_auto_installs_the_cpu_runtime_when_no_gpu_runtime_fits() -> None:
@@ -81,11 +81,11 @@ def test_auto_never_picks_an_experimental_runtime_unless_allowed() -> None:
     assert choose(hw(RTX5090), allow=True).variant.id == "cuda12-blackwell"
 
 
-def test_auto_explains_an_amd_gpu_that_has_no_pinned_runtime() -> None:
+def test_auto_explains_an_amd_gpu_that_needs_the_experimental_flag() -> None:
     choice = choose(hw(RX7900, kfd=True))
     assert choice.variant.id == "cpu"
-    assert "rocm-linux has no pinned runtime yet" in choice.reason and "gfx1100" in choice.reason
-    assert choose(hw(RX7900, kfd=True), allow=True).variant.id == "cpu"  # allowing cannot conjure pins
+    assert "rocm-linux is experimental" in choice.reason and "gfx1100" in choice.reason
+    assert choose(hw(RX7900, kfd=True), allow=True).variant.id == "rocm-linux"
 
 
 def test_an_explicit_variant_is_taken_as_asked() -> None:
@@ -105,7 +105,7 @@ def test_gpu_description_lists_only_what_is_known() -> None:
     "variant_id,platform,allow,message",
     [
         ("cuda12", "darwin", False, "not available on darwin; it supports linux, win32"),
-        ("rocm-linux", "linux", True, "no runtime is pinned for it yet"),
+        ("rocm-linux", "linux", False, "--allow-experimental"),
         ("rocm-linux", "win32", False, "not available on win32"),
         ("cuda11", "linux", True, "faster-whisper 1.x requires ctranslate2>=4"),
         ("cuda12-blackwell", "linux", False, "--allow-experimental"),
@@ -149,6 +149,8 @@ def test_uv_commands_target_the_given_python_and_install_the_lockfile_as_is() ->
         "--python",
         PYTHON,
         "--no-deps",
+        "--reinstall-package",
+        "ctranslate2",
         "-r",
         str(lock),
     )
@@ -167,6 +169,7 @@ def test_pip_is_the_fallback_when_uv_is_missing() -> None:
         "pip",
         "install",
         "--no-deps",
+        "--force-reinstall",
         "-r",
         str(lock),
     )
@@ -208,7 +211,18 @@ def test_a_gpu_runtime_removes_the_cpu_onnxruntime_before_installing() -> None:
     plan, lock = plan_for("cuda12", {"onnxruntime", "numpy"})
     assert [c.argv for c in plan.commands] == [
         (UV, "pip", "uninstall", "--python", PYTHON, "onnxruntime"),
-        (UV, "pip", "install", "--python", PYTHON, "--no-deps", "-r", str(lock)),
+        (
+            UV,
+            "pip",
+            "install",
+            "--python",
+            PYTHON,
+            "--no-deps",
+            "--reinstall-package",
+            "ctranslate2",
+            "-r",
+            str(lock),
+        ),
     ]
 
 
@@ -268,7 +282,7 @@ def test_dry_run_prints_the_commands_and_changes_nothing(env, commands, uv, caps
     assert code == 0 and commands == []
     assert "Runtime variant: cuda12" in out and "why: automatic choice: NVIDIA GeForce RTX 4090" in out
     assert f"{UV} pip uninstall --python" in out and " onnxruntime" in out
-    assert "--no-deps -r " in out and "cuda12.txt" in out
+    assert "--no-deps --reinstall-package ctranslate2 -r " in out and "cuda12.txt" in out
     assert "Dry run: nothing was changed." in out
     assert read_variant(env.settings.data_dir) is None  # no state written
 
@@ -327,8 +341,8 @@ def test_a_failing_command_stops_setup_and_records_nothing(env, uv, capsys, monk
 
 
 def test_a_refused_variant_prints_the_note_and_runs_nothing(env, commands, uv, capsys) -> None:
-    code, _, err = run(capsys, "setup", "--variant", "rocm-linux", "--allow-experimental")
-    assert code == 2 and "no runtime is pinned" in err and "GitHub releases page" in err
+    code, _, err = run(capsys, "setup", "--variant", "rocm-linux")
+    assert code == 2 and "--allow-experimental" in err and "not been run on an AMD GPU" in err
 
     code, _, err = run(capsys, "setup", "--variant", "cuda12-blackwell", "--yes")
     assert code == 2 and "--allow-experimental" in err

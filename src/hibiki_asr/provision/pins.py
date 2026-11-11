@@ -33,7 +33,16 @@ def sha256_bytes(data: bytes) -> str:
 
 
 def lockfile_sha256(variant: Variant) -> str:
-    return sha256_bytes(_resource(variant).read_bytes())
+    return runtime_sha256(variant, _resource(variant).read_bytes())
+
+
+def runtime_sha256(variant: Variant, lockfile: bytes) -> str:
+    """Fingerprint the baseline plus any pinned ROCm replacement, so updates detect changes to either."""
+    if variant.wheel_archive_url:
+        lockfile += (
+            f"\n{variant.wheel_archive_url}\n{variant.wheel_archive_sha256}\n{variant.wheel_version}\n"
+        ).encode()
+    return sha256_bytes(lockfile)
 
 
 @contextmanager

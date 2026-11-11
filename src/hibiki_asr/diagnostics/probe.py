@@ -171,6 +171,15 @@ def _gpus_windows(system: SystemAccess) -> list[GpuInfo]:
     return gpus
 
 
+def _apple_gpu(system: SystemAccess) -> GpuInfo:
+    """Every Apple Silicon Mac has a GPU that shares the machine's memory; the chip's name is its name."""
+    code, out = system.run(["sysctl", "-n", "machdep.cpu.brand_string"], 5.0)
+    chip = out.strip() if code == 0 and out.strip() else "Apple Silicon"
+    code, out = system.run(["sysctl", "-n", "hw.memsize"], 5.0)
+    memory = int(out.strip()) // (1024 * 1024) if code == 0 and out.strip().isdigit() else None
+    return GpuInfo(vendor="apple", name=f"{chip} GPU", vram_mb=memory, integrated=True)
+
+
 def probe_hardware(system: SystemAccess | None = None) -> HardwareProbe:
     system = system or SystemAccess()
 
@@ -188,6 +197,8 @@ def probe_hardware(system: SystemAccess | None = None) -> HardwareProbe:
     elif system.is_windows():
         # nvidia-smi is the authority for NVIDIA cards; adapter names only fill in when it is unusable.
         gpus.extend(g for g in _gpus_windows(system) if g.vendor != "nvidia" or not nvidia)
+    elif system.is_apple_silicon():
+        gpus.append(_apple_gpu(system))
 
     return HardwareProbe(
         os=system.platform,

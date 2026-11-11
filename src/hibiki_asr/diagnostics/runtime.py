@@ -57,7 +57,26 @@ def collect_runtime_facts() -> RuntimeFacts:
     except Exception as exc:
         facts.faster_whisper_error = f"{type(exc).__name__}: {exc}"
 
+    if sys.platform == "darwin":
+        _collect_mlx(facts)
     return facts
+
+
+def _collect_mlx(facts: RuntimeFacts) -> None:
+    """The MLX runtime is optional (the `mlx` variant): its absence is not an error."""
+    from importlib import metadata, util
+
+    if util.find_spec("mlx") is None or util.find_spec("mlx_whisper") is None:
+        return
+    try:
+        import mlx.core as mx
+
+        facts.mlx_version = metadata.version("mlx")
+        facts.mlx_gpu = bool(mx.metal.is_available())
+        if facts.mlx_gpu:
+            facts.compute_types["mlx"] = ["float16", "float32"]
+    except Exception as exc:
+        facts.mlx_error = f"{type(exc).__name__}: {exc}"
 
 
 def probe_runtime(timeout: float = 60.0) -> RuntimeFacts:

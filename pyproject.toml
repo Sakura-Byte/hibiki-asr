@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "hibiki-asr"
 version = "0.1.0"
-description = "Local Whisper (CTranslate2) ASR engine service for Hibiki/KikoeruGo: CPU/CUDA/ROCm auto-detection, cancellable job API, model and version management."
+description = "Local Whisper (CTranslate2/MLX) ASR engine service for Hibiki/KikoeruGo: automatic device selection, cancellable job API, model and version management."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10,<3.14"
@@ -31,6 +31,7 @@ dependencies = [
 runtime = [
   "numpy>=1.26",
   "faster-whisper>=1.1,<2",
+  "av<19",  # faster-whisper 1.2.1 passes metadata_errors to av.open(), removed in av 19
   "onnxruntime>=1.18",
 ]
 dev = [

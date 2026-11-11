@@ -4,5 +4,8 @@
 # onnxruntime 1.24 declares Python >= 3.10 but publishes no cp310 wheel, so Python 3.10 stops at 1.23.
 numpy>=1.26
 faster-whisper>=1.1,<2
+# av 19 removed the `metadata_errors` argument that faster-whisper 1.2.1 passes to av.open(), so every decode fails
+# with it (faster-whisper only asks for av>=11). Drop the cap once a faster-whisper release works with av 19.
+av<19
 onnxruntime>=1.18,<1.24; python_version < "3.11"
 onnxruntime>=1.18; python_version >= "3.11"

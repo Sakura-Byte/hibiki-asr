@@ -67,6 +67,9 @@ class Api:
     def put(self, path, **kw):
         return self.client.put(path, headers=self.headers, **kw)
 
+    def patch(self, path, **kw):
+        return self.client.patch(path, headers=self.headers, **kw)
+
     def install(self, version: str = "v1", **body):
         started = self.post(f"/v1/models/tiny/versions/{version}/download", json=body or None).json()
         self.world.wait(started["id"])
@@ -123,10 +126,14 @@ def test_healthz_needs_no_token(api) -> None:
 )
 def test_every_other_route_requires_the_token(api, headers, status, code) -> None:
     a = api()
-    for path in ("/v1/version", "/v1/models", "/v1/diagnostics", "/v1/jobs/x"):
+    for path in ("/v1/version", "/v1/models", "/v1/diagnostics", "/v1/settings", "/v1/jobs/x"):
         response = a.client.get(path, headers=headers)
         assert response.status_code == status and response.json()["error"]["code"] == code
     assert a.client.get("/v1/version", headers={}).headers.get("www-authenticate") == "Bearer"
+    assert (
+        a.client.patch("/v1/settings", json={"allow_cpu_fallback": False}, headers=headers).status_code
+        == status
+    )
 
 
 def test_without_a_configured_token_the_engine_is_open(api) -> None:
@@ -190,6 +197,97 @@ def test_a_broken_local_catalog_is_surfaced_as_a_finding(api) -> None:
         f for f in a.get("/v1/diagnostics").json()["findings"] if f["code"] == "CATALOG_SOURCE_IGNORED"
     )
     assert "boom" in finding["message"]
+
+
+def test_runtime_settings_are_validated_merged_and_seen_by_doctor(api) -> None:
+    a = api(vad={"threshold": 0.7, "threads": 3}, generation={"beam_size": 5})
+    before = a.get("/v1/diagnostics").json()
+    response = a.patch(
+        "/v1/settings",
+        json={
+            "device": "cpu",
+            "allow_cpu_fallback": False,
+            "vad": {"threshold": 0.4},
+            "generation": {"temperature": 0},
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["device"] == "cpu" and body["allow_cpu_fallback"] is False
+    assert body["vad"]["threshold"] == 0.4 and body["vad"]["threads"] == 3
+    assert body["generation"] == {"temperature": 0}
+    assert a.get("/v1/settings").json() == body
+    assert "token" not in body and "hf_token" not in body and "host" not in body
+    after = a.get("/v1/diagnostics").json()
+    assert before["settings"]["device"] == "auto" and after["settings"]["device"] == "cpu"
+    assert after["settings"]["allow_cpu_fallback"] is False
+    assert a.patch("/v1/settings", json={}).json() == body
+    assert a.patch("/v1/settings", json={"generation": {}}).json()["generation"] == {}
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"device": "nope"},
+        {"allow_cpu_fallback": None},
+        {"cpu_threads": -1},
+        {"vad": {"threshold": 1.1}},
+        {"vad": {"threshhold": 0.5}},
+        {"allow_cpu_fallback": False, "token": "changed"},
+        {"host": "0.0.0.0"},
+    ],
+)
+def test_invalid_runtime_changes_do_not_apply_partially(api, patch) -> None:
+    a = api()
+    before = a.get("/v1/settings").json()
+    response = a.patch("/v1/settings", json=patch)
+    assert response.status_code == 422 and response.json()["error"]["code"] == "INVALID_REQUEST"
+    assert a.get("/v1/settings").json() == before
+
+
+def test_runtime_updates_apply_to_new_jobs_and_preserve_submitted_jobs(api) -> None:
+    started, release = threading.Event(), threading.Event()
+
+    def blocked(worker, request):
+        started.set()
+        release.wait(5)
+        ok(worker, request)
+
+    a = api(blocked)
+    a.install()
+    first = a.submit().json()
+    assert started.wait(5)
+    queued = a.submit().json()
+    try:
+        assert (
+            a.patch(
+                "/v1/settings",
+                json={
+                    "device": "mlx",
+                    "allow_cpu_fallback": False,
+                    "cpu_threads": 2,
+                    "vad": {"threads": 3},
+                    "generation": {"beam_size": 2},
+                },
+            ).status_code
+            == 200
+        )
+        changed = a.submit().json()
+    finally:
+        release.set()
+    for job in (first, queued, changed):
+        assert a.wait_job(job["id"])["state"] == "succeeded"
+    old, waiting, new = a.workers[0].requests
+    assert old.device == waiting.device == "auto" and waiting.allow_cpu_fallback is True
+    assert new.device == "mlx" and new.allow_cpu_fallback is False
+    assert new.cpu_threads == 2 and new.vad_threads == 3 and new.generation == {"beam_size": 2}
+
+
+def test_runtime_update_changes_the_upload_limit_without_restart(api) -> None:
+    a = api()
+    a.install()
+    assert a.patch("/v1/settings", json={"max_upload_mb": 1}).status_code == 200
+    assert a.submit(audio=b"x" * (1024 * 1024 + 1)).status_code == 413
 
 
 # --- models -------------------------------------------------------------------------------------------------

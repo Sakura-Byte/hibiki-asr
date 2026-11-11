@@ -22,6 +22,11 @@ class RealLoaders:
         return collect_runtime_facts()
 
     def load_model(self, model_dir: Path, device: str, compute_type: str, cpu_threads: int) -> WhisperLike:
+        if device == "mlx":
+            from .mlx_backend import MlxWhisper
+
+            return MlxWhisper(model_dir, compute_type)
+
         from faster_whisper import WhisperModel
 
         return WhisperModel(str(model_dir), device=device, compute_type=compute_type, cpu_threads=cpu_threads)

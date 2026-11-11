@@ -59,9 +59,8 @@ services:
     # gpus: all
 
   # --- AMD ROCm: EXPERIMENTAL, not verified on any AMD GPU ------------------------------------------------
-  # There is no published image with a working ROCm runtime yet: the ROCm build of CTranslate2 has to be supplied
-  # by you when building docker/Dockerfile.rocm (see the header of that file). The devices below are what a ROCm
-  # container needs (`doctor` names them when they are missing).
+  # The image installs the pinned official CTranslate2 ROCm archive. The devices below are what a ROCm
+  # container needs (`doctor` names them when they are missing); host drivers and GPU inference need validation.
   hibiki-asr-rocm:
     <<: *engine
     profiles: [rocm]
@@ -69,7 +68,7 @@ services:
     # build:
     #   context: ..
     #   dockerfile: docker/Dockerfile.rocm
-    #   args: { CT2_ROCM_WHEEL: "https://...whl", CT2_ROCM_SHA256: "...", ROCM_IMAGE: "rocm/dev-ubuntu-22.04:7.2.4" }
+    #   args: { ROCM_IMAGE: "rocm/dev-ubuntu-22.04:7.2.4" }
     devices:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
