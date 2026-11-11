@@ -27,8 +27,24 @@ def main() -> int:
         assert facts.faster_whisper_version, facts.faster_whisper_error
         if variant == "mlx":
             assert facts.mlx_version, facts.mlx_error
-            import mlx_whisper  # noqa: F401
+            from mlx_whisper.tokenizer import get_tokenizer
 
+            assert get_tokenizer(multilingual=True).encode("standalone")
+
+        import tempfile
+        import wave
+
+        import numpy as np
+        from faster_whisper.audio import decode_audio
+
+        with tempfile.TemporaryDirectory() as directory:
+            audio = Path(directory) / "tone.wav"
+            with wave.open(str(audio), "wb") as stream:
+                stream.setnchannels(1)
+                stream.setsampwidth(2)
+                stream.setframerate(8000)
+                stream.writeframes((np.sin(np.arange(8000) / 5) * 8000).astype(np.int16).tobytes())
+            assert decode_audio(str(audio), sampling_rate=16000).shape == (16000,)
         worker = ProcessWorker()
         worker.shutdown(30)
         assert worker.exit_code() == 0, worker.exit_code()

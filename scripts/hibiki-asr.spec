@@ -2,7 +2,7 @@
 import json
 import sys
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules, copy_metadata
 
 root = Path(SPECPATH).parent
 variant = "mlx" if sys.platform == "darwin" else "cpu"
@@ -11,7 +11,7 @@ metadata_file.parent.mkdir(exist_ok=True)
 metadata_file.write_text(json.dumps({"variant": variant}))
 datas = collect_data_files("hibiki_asr") + copy_metadata("hibiki-asr", recursive=True)
 datas += [(str(metadata_file), "hibiki_asr")]
-binaries, hiddenimports = [], []
+binaries, hiddenimports = [], collect_submodules("tiktoken_ext")
 packages = ["faster_whisper", "ctranslate2", "onnxruntime", "av", "tiktoken"]
 if variant == "mlx":
     packages += ["mlx", "mlx_whisper"]
