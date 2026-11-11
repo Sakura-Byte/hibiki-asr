@@ -83,7 +83,8 @@ def probe_runtime(timeout: float = 60.0) -> RuntimeFacts:
     """Collect the facts in an isolated subprocess. A crash or hang becomes ``probe_ok=False``."""
     try:
         completed = subprocess.run(
-            [sys.executable, "-m", "hibiki_asr.diagnostics.runtime"],
+            ([sys.executable, "--runtime-probe"] if getattr(sys, "frozen", False) else
+             [sys.executable, "-m", "hibiki_asr.diagnostics.runtime"]),
             capture_output=True,
             text=True,
             timeout=timeout,

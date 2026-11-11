@@ -1,0 +1,103 @@
+name: Binary and Docker CI
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      source-ref:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-cpu
+            variant: cpu
+          - os: windows-latest
+            target: windows-x64-cpu
+            variant: cpu
+          - os: macos-latest
+            target: macos-arm64-mlx
+            variant: mlx
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Sakura-Byte/hibiki-asr
+          ref: ${{ inputs.source-ref || github.sha }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned standalone runtime
+        run: |
+          uv venv
+          uv pip install --require-hashes --no-deps -r src/hibiki_asr/provision/lockfiles/${{ matrix.variant }}.txt
+          uv pip install .
+          uv pip install 'pyinstaller==6.22.3'
+      - run: uv run --no-sync pyinstaller --noconfirm scripts/hibiki-asr.spec
+      - name: Test frozen probe, spawned worker and HTTP server
+        run: uv run --no-sync python scripts/smoke_binary.py dist/hibiki-asr/hibiki-asr${{ runner.os == 'Windows' && '.exe' || '' }}
+      - name: Archive executable and its bundled libraries
+        run: |
+          tar -czf hibiki-asr-${{ matrix.target }}.tar.gz -C dist hibiki-asr
+          python -c "import hashlib,pathlib; p=pathlib.Path('hibiki-asr-${{ matrix.target }}.tar.gz'); pathlib.Path(str(p)+'.sha256').write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')"
+      # Public-repository runs validate binaries but never upload deployment artifacts.
+      - uses: actions/upload-artifact@v7
+        if: github.event.repository.private
+        with:
+          name: hibiki-asr-${{ matrix.target }}
+          path: hibiki-asr-${{ matrix.target }}.tar.gz*
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: false
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cpu, cuda, rocm]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Sakura-Byte/hibiki-asr
+          ref: ${{ inputs.source-ref || github.sha }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.variant }}
+          load: true
+          tags: hibiki-asr:ci-${{ inputs.source-ref || github.sha }}-${{ matrix.variant }}
+      - name: Smoke test image
+        run: |
+          docker run -d --name engine -e HIBIKI_ASR_TOKEN=ci -p 8001:8001 hibiki-asr:ci-${{ inputs.source-ref || github.sha }}-${{ matrix.variant }}
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8001/v1/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs engine
+          exit 1
+      - name: Save private image archive
+        if: github.event.repository.private
+        run: |
+          docker save hibiki-asr:ci-${{ inputs.source-ref || github.sha }}-${{ matrix.variant }} | gzip > hibiki-asr-${{ matrix.variant }}.docker.tar.gz
+          sha256sum hibiki-asr-${{ matrix.variant }}.docker.tar.gz > hibiki-asr-${{ matrix.variant }}.docker.tar.gz.sha256
+      - uses: actions/upload-artifact@v7
+        if: github.event.repository.private
+        with:
+          name: hibiki-asr-docker-${{ matrix.variant }}
+          path: hibiki-asr-${{ matrix.variant }}.docker.tar.gz*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

@@ -319,3 +319,22 @@ mypy, pytest on Linux, Windows and macOS, `openapi.json` up to date, the Docker 
 ## License
 
 MIT. No model weights are distributed; see [NOTICE](NOTICE) for the licenses of the models it can download.
+
+## Standalone CI binaries and private delivery
+
+`.github/workflows/delivery.yml` builds standalone archives for Linux x64 (CPU),
+Windows x64 (CPU), and macOS ARM64 (MLX), plus CPU/CUDA/ROCm Docker images.
+Each binary archive includes its Python interpreter and native runtime libraries;
+extract the whole directory and run `hibiki-asr` (or `hibiki-asr.exe`). No Python
+installation or `setup` is required. Models and configuration remain outside the
+bundle. Replace the entire bundle to update; `setup` and `update` refuse to mutate
+standalone installations.
+
+CI checks the isolated runtime probe, spawned worker, and authenticated HTTP API
+from outside the source checkout. Hosted macOS runners cannot validate real GPU
+inference; deployment must also verify MLX on the target Mac.
+
+The delivery workflow is reusable with an exact `source-ref`. Public repository
+runs test the binaries and images without uploading deployment archives. Calling
+it from a private repository stores binary and Docker archives as private Actions
+artifacts, with checksums and limited retention; no public Release is created.

@@ -538,6 +538,9 @@ _STARTS_RUNTIME = {"serve", "doctor", "setup"}  # they probe or run the inferenc
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if getattr(sys, "frozen", False) and args.command in {"setup", "update"}:
+        print("error: standalone runtimes are immutable; replace the binary bundle to upgrade or change runtime.", file=sys.stderr)
+        return 2
     try:
         overrides = {k: getattr(args, k, None) for k in ("host", "port")}
         settings = load_settings(overrides=overrides, config_path=args.config)
