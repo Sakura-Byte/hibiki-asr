@@ -3070,6 +3070,38 @@
             "title": "Allow Cpu Fallback",
             "default": true
           },
+          "adaptive_parallel": {
+            "type": "boolean",
+            "title": "Adaptive Parallel",
+            "default": true
+          },
+          "max_parallel_jobs": {
+            "type": "integer",
+            "maximum": 32.0,
+            "minimum": 1.0,
+            "title": "Max Parallel Jobs",
+            "default": 4
+          },
+          "parallel_vram_per_job_mb": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Parallel Vram Per Job Mb",
+            "description": "Conservative VRAM budget per worker, including model and inference.",
+            "default": 4096
+          },
+          "parallel_vram_reserve_mb": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Parallel Vram Reserve Mb",
+            "default": 1024
+          },
+          "parallel_probe_seconds": {
+            "type": "number",
+            "maximum": 60.0,
+            "minimum": 0.1,
+            "title": "Parallel Probe Seconds",
+            "default": 2.0
+          },
           "cpu_threads": {
             "type": "integer",
             "minimum": 0.0,

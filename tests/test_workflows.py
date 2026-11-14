@@ -22,7 +22,7 @@ else:  # pragma: no cover
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-NAMES = ["ci", "release"]
+NAMES = ["ci", "delivery", "release"]
 # docker tag -> the variant that image installs (see docker/Dockerfile.*)
 IMAGE_VARIANTS = {"cpu": "cpu", "cuda": "cuda12", "rocm": "rocm-linux"}
 
@@ -44,6 +44,9 @@ def test_every_step_runs_something_and_every_action_is_pinned_to_a_major_version
     workflow = load(name)
     assert workflow["permissions"]  # never the broad default token
     for job_name, job in workflow["jobs"].items():
+        if "uses" in job:
+            assert (ROOT / job["uses"]).is_file()
+            continue
         for step in steps(job):
             assert ("uses" in step) != ("run" in step), f"{name}/{job_name}: {step}"
             if "uses" in step:
@@ -73,8 +76,8 @@ def test_ci_fails_when_openapi_json_is_stale() -> None:
 
 
 def test_ci_builds_the_images_it_can_and_checks_that_they_start() -> None:
-    job = load("ci")["jobs"]["docker"]
-    tags = {entry["tag"]: entry["dockerfile"] for entry in job["strategy"]["matrix"]["include"]}
+    job = load("delivery")["jobs"]["docker"]
+    tags = {tag: f"docker/Dockerfile.{tag}" for tag in job["strategy"]["matrix"]["variant"]}
     assert tags == {tag: f"docker/Dockerfile.{tag}" for tag in ("cpu", "cuda", "rocm")}
     text = commands(job)
     assert "HIBIKI_ASR_TOKEN=ci" in text and "/v1/healthz" in text and "hibiki-asr doctor" in text
@@ -146,3 +149,30 @@ def test_the_rocm_image_uses_its_pinned_archive_and_gets_the_base_image_argument
     assert (
         default_image and default_image.group(1) in passed["ROCM_IMAGE"]
     )  # the same fallback in both places
+
+
+def test_push_builds_images_once_and_publishes_only_after_checks():
+    ci = load("ci")
+    delivery = load("delivery")
+    assert "push" not in ci.get("on", ci.get(True))
+    assert "pull_request" not in ci.get("on", ci.get(True))
+    assert "workflow_call" in ci.get("on", ci.get(True))
+    assert "docker" not in ci["jobs"]
+    assert delivery["jobs"]["checks"]["uses"] == "./.github/workflows/ci.yml"
+    assert set(delivery["jobs"]["publish"]["needs"]) == {"checks", "binary", "docker"}
+    assert "refs/heads/main" in delivery["jobs"]["publish"]["if"]
+    assert "pull_request" in delivery["jobs"]["publish"]["if"]
+    assert "gh run list" not in commands(delivery["jobs"]["publish"])
+    assert delivery["concurrency"]["cancel-in-progress"] is True
+
+
+def test_delivery_caches_images_and_skips_expensive_pr_archives():
+    docker = load("delivery")["jobs"]["docker"]
+    build = next(s for s in steps(docker) if s.get("uses", "").startswith("docker/build-push-action"))
+    assert "scope=asr-${{ matrix.variant }}" in build["with"]["cache-from"]
+    assert "scope=asr-${{ matrix.variant }}" in build["with"]["cache-to"]
+    archive = next(s for s in steps(docker) if s.get("name") == "Save image archive")
+    assert "pigz -1" in archive["run"]
+    assert archive["if"] == "github.event_name != 'pull_request'"
+    assert "without HIBIKI_ASR_TOKEN" in commands(docker)
+    assert "decode_audio" in commands(docker)

@@ -1,4 +1,4 @@
-"""Runs jobs one at a time in the inference worker, and makes cancelling reliable.
+"""Runs jobs in isolated inference workers with memory-aware admission, and makes cancelling reliable.
 
 Cancelling is cooperative first: the worker checks a shared flag between VAD windows and between decoded
 segments. If a job still has not stopped ``cancel_grace_seconds`` after the request (a very long decode, a hung
@@ -24,7 +24,8 @@ from ..pipeline.writers import to_vtt
 from ..settings import Settings
 from ..worker.process import WorkerFactory, WorkerHandle
 from ..worker.protocol import Progress, RunCancelled, RunFailed, RunRequest, RunResult
-from ..worker.session import vad_settings_to_dict
+from ..worker.session import _looks_like_oom, vad_settings_to_dict
+from .memory import free_vram_mb
 from .schema import (
     TERMINAL_STATES,
     JobError,
@@ -40,6 +41,14 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 0.1
 HOUSEKEEPING_SECONDS = 30.0
+
+
+@dataclass
+class _Slot:
+    worker: WorkerHandle | None = None
+    job: _Job | None = None
+    thread: threading.Thread | None = None
+    last_activity: float = 0.0
 
 
 @dataclass
@@ -72,6 +81,7 @@ class JobManager:
         *,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], float] = time.time,
+        memory_probe: Callable[[str], int | None] = free_vram_mb,
     ) -> None:
         self._settings = settings
         self._factory = worker_factory
@@ -82,8 +92,11 @@ class JobManager:
         self._jobs: dict[str, _Job] = {}
         self._queue: deque[str] = deque()
         self._stopping = False
-        self._worker: WorkerHandle | None = None
-        self._last_activity = clock()
+        self._stop_deadline = float("inf")
+        self._slots: list[_Slot] = []
+        self._memory_probe = memory_probe
+        self._parallel_ceiling = settings.max_parallel_jobs
+        self._next_probe = 0.0
 
         self._thread = threading.Thread(target=self._loop, name="job-dispatcher", daemon=True)
         self._thread.start()
@@ -94,6 +107,7 @@ class JobManager:
         """Replace defaults atomically; jobs already submitted keep their own snapshot."""
         with self._cond:
             self._settings = settings
+            self._parallel_ceiling = settings.max_parallel_jobs
             self._cond.notify_all()
 
     def submit(
@@ -155,11 +169,12 @@ class JobManager:
 
     def worker_running(self) -> bool:
         with self._cond:
-            return self._worker is not None and self._worker.is_alive()
+            return any(slot.worker is not None and slot.worker.is_alive() for slot in self._slots)
 
     def stop(self) -> None:
         with self._cond:
             self._stopping = True
+            self._stop_deadline = min(self._stop_deadline, self._clock() + 10.0)
             for job in list(self._jobs.values()):
                 if job.state in TERMINAL_STATES:
                     continue
@@ -168,8 +183,11 @@ class JobManager:
                     self._queue.remove(job.id)
                     self._finish(job, JobState.cancelled, message="the engine is shutting down")
             self._cond.notify_all()
-        self._thread.join(timeout=15)
-        self._drop_worker(graceful=True)
+        self._thread.join()
+        for slot in self._slots:
+            if slot.thread is not None:
+                slot.thread.join()
+            self._drop_worker(slot, graceful=True)
 
     # -- state helpers (callers hold the lock unless noted) -----------------------------------------------------
 
@@ -232,42 +250,64 @@ class JobManager:
     def _loop(self) -> None:
         while True:
             with self._cond:
-                job = self._next_job()
-                if job is None:
-                    if self._stopping:
-                        return
-                    continue
-            self._execute(job)
+                self._housekeeping()
+                if self._stopping:
+                    return
+                active = [slot for slot in self._slots if slot.job is not None]
+                if self._queue and self._can_start(active):
+                    slot = next((slot for slot in self._slots if slot.job is None), None)
+                    if slot is None:
+                        slot = _Slot()
+                        self._slots.append(slot)
+                    job = self._jobs[self._queue.popleft()]
+                    job.state, job.stage, job.message = JobState.running, "loading", "starting"
+                    job.updated_at = self._wall()
+                    slot.job = job
+                    slot.thread = threading.Thread(target=self._execute, args=(job, slot), daemon=True)
+                    slot.thread.start()
+                else:
+                    self._cond.wait(0.1)
 
-    def _next_job(self) -> _Job | None:
-        """Wait for work; while idle, unload the model and forget old jobs. Called with the lock held."""
-        if not self._queue and not self._stopping:
-            timeout = HOUSEKEEPING_SECONDS
-            idle_limit = self._settings.idle_unload_seconds
-            if idle_limit and self._worker is not None:
-                timeout = max(0.05, min(timeout, idle_limit - (self._clock() - self._last_activity)))
-            self._cond.wait(timeout)
-            self._housekeeping()
-        if self._stopping:
-            return None
-        if not self._queue:
-            return None
-        job = self._jobs[self._queue.popleft()]
-        job.state, job.stage, job.message = JobState.running, "loading", "starting"
-        job.updated_at = self._wall()
-        return job
+    def _can_start(self, active: list[_Slot]) -> bool:
+        s = self._settings
+        if len(active) >= min(s.max_parallel_jobs, self._parallel_ceiling):
+            return False
+        if not active or not s.adaptive_parallel:
+            return True
+        job = self._jobs[self._queue[0]]
+        if job.settings.device == "cpu" or job.variant == "cpu":
+            return False
+        # Admit one new worker at a time: its model must be resident before probing again.
+        if any(slot.job is not None and slot.job.stage != "transcribing" for slot in active):
+            return False
+        if self._clock() < self._next_probe:
+            return False
+        self._next_probe = self._clock() + s.parallel_probe_seconds
+        device = job.settings.device
+        if device == "auto":
+            if job.variant == "mlx":
+                device = "mlx"
+            elif (job.variant or "").startswith("rocm"):
+                device = "amd"
+        try:
+            free = self._memory_probe(device)
+        except Exception:
+            logger.exception("could not read free GPU memory; keeping serial admission")
+            return False
+        return free is not None and free >= s.parallel_vram_reserve_mb + s.parallel_vram_per_job_mb
 
     def _housekeeping(self) -> None:
         idle_limit = self._settings.idle_unload_seconds
-        if (
-            idle_limit
-            and self._worker is not None
-            and not self._queue
-            and self._clock() - self._last_activity >= idle_limit
-        ):
-            logger.info("no work for %ds: unloading the model to free memory", idle_limit)
-            worker, self._worker = self._worker, None
-            threading.Thread(target=lambda: worker.shutdown(10.0), daemon=True).start()
+        for index, slot in enumerate(self._slots):
+            if (
+                slot.job is None
+                and slot.worker is not None
+                and (
+                    (idle_limit and self._clock() - slot.last_activity >= idle_limit)
+                    or index >= min(self._settings.max_parallel_jobs, self._parallel_ceiling)
+                )
+            ):
+                self._drop_worker(slot, graceful=True)
 
         cutoff = self._wall() - self._settings.job_ttl_seconds
         for job_id in [
@@ -275,23 +315,23 @@ class JobManager:
         ]:
             del self._jobs[job_id]
 
-    def _ensure_worker(self) -> WorkerHandle:
+    def _ensure_worker(self, slot: _Slot) -> WorkerHandle:
         with self._cond:
-            if self._worker is not None and not self._worker.is_alive():
-                self._worker = None
-            if self._worker is None:
-                self._worker = self._factory()
-            return self._worker
+            if slot.worker is not None and not slot.worker.is_alive():
+                slot.worker.kill()
+                slot.worker = None
+            if slot.worker is None:
+                slot.worker = self._factory()
+            return slot.worker
 
-    def _drop_worker(self, *, graceful: bool) -> None:
+    def _drop_worker(self, slot: _Slot, *, graceful: bool) -> None:
         with self._cond:
-            worker, self._worker = self._worker, None
-        if worker is None:
-            return
-        if graceful:
-            worker.shutdown(5.0)
-        else:
-            worker.kill()
+            worker, slot.worker = slot.worker, None
+        if worker is not None:
+            if graceful:
+                worker.shutdown(5.0)
+            else:
+                worker.kill()
 
     def _request_for(self, job: _Job) -> RunRequest:
         s = job.settings
@@ -315,10 +355,11 @@ class JobManager:
             variant=job.variant,
         )
 
-    def _execute(self, job: _Job) -> None:
+    def _execute(self, job: _Job, slot: _Slot) -> None:
         try:
-            self._run_on_worker(job)
+            self._run_on_worker(job, slot)
         except Exception as exc:
+            self._drop_worker(slot, graceful=False)
             logger.exception("job %s failed unexpectedly", job.id)
             with self._cond:
                 if job.state not in TERMINAL_STATES:
@@ -331,7 +372,9 @@ class JobManager:
         finally:
             self._discard_audio(job)  # again, in case the first attempt met a file the worker still held
             with self._cond:
-                self._last_activity = self._clock()
+                slot.last_activity = self._clock()
+                slot.job = None
+                self._cond.notify_all()
                 if job.state not in TERMINAL_STATES:  # defensive: never leave a job dangling
                     self._finish(
                         job,
@@ -340,9 +383,9 @@ class JobManager:
                         error=JobError(code="INTERNAL_ERROR", message="job stopped unexpectedly"),
                     )
 
-    def _run_on_worker(self, job: _Job) -> None:
+    def _run_on_worker(self, job: _Job, slot: _Slot) -> None:
         try:
-            worker = self._ensure_worker()
+            worker = self._ensure_worker(slot)
         except Exception as exc:
             with self._cond:
                 self._finish(
@@ -364,15 +407,21 @@ class JobManager:
         while True:
             with self._cond:
                 cancelling = job.cancel_requested
-            if cancelling and cancel_deadline is None:
+            if (cancelling or self._stopping) and cancel_deadline is None:
                 worker.request_cancel()
-                cancel_deadline = self._clock() + job.settings.cancel_grace_seconds
+                cancel_deadline = self._clock() + (
+                    min(10.0, job.settings.cancel_grace_seconds)
+                    if self._stopping
+                    else job.settings.cancel_grace_seconds
+                )
 
+            if self._stopping and cancel_deadline is not None:
+                cancel_deadline = min(cancel_deadline, self._stop_deadline)
             message = worker.poll(POLL_SECONDS)
 
             if message is None:
                 if not worker.is_alive():
-                    self._on_crash(job, worker)
+                    self._on_crash(job, worker, slot)
                     return
                 if cancel_deadline is not None and self._clock() > cancel_deadline:
                     logger.warning(
@@ -380,7 +429,7 @@ class JobManager:
                         job.id,
                         job.settings.cancel_grace_seconds,
                     )
-                    self._drop_worker(graceful=False)
+                    self._drop_worker(slot, graceful=False)
                     with self._cond:
                         self._finish(
                             job, JobState.cancelled, message="cancelled (the worker was restarted to stop it)"
@@ -396,6 +445,12 @@ class JobManager:
                 continue
 
             with self._cond:
+                if job.settings.adaptive_parallel and (
+                    (isinstance(message, RunFailed) and _looks_like_oom(message.message))
+                    or (isinstance(message, RunResult) and message.degraded)
+                ):
+                    self._parallel_ceiling = max(1, sum(s.job is not None for s in self._slots) - 1)
+                    self._drop_worker(slot, graceful=False)
                 if isinstance(message, RunResult):
                     if job.cancel_requested:
                         self._finish(
@@ -423,11 +478,15 @@ class JobManager:
                     continue
             return
 
-    def _on_crash(self, job: _Job, worker: WorkerHandle) -> None:
+    def _on_crash(self, job: _Job, worker: WorkerHandle, slot: _Slot) -> None:
         code = worker.exit_code()
         how = f"signal {-code}" if code is not None and code < 0 else f"exit code {code}"
         with self._cond:
-            self._worker = None
+            self._drop_worker(slot, graceful=False)
+            # Metal can abort in native code on OOM without returning RunFailed.
+            # A crash during parallel execution warrants a conservative lower cap.
+            if job.settings.adaptive_parallel and not job.cancel_requested:
+                self._parallel_ceiling = max(1, sum(s.job is not None for s in self._slots) - 1)
             if job.cancel_requested:
                 self._finish(job, JobState.cancelled, message="cancelled")
                 return

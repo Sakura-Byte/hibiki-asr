@@ -2,10 +2,19 @@ name: Binary and Docker CI
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: delivery-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
   binary:
     strategy:
       fail-fast: false
@@ -26,12 +35,13 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-        with:
-          repository: Sakura-Byte/hibiki-asr
-          ref: ${{ github.sha }}
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            src/hibiki_asr/provision/lockfiles/${{ matrix.variant }}.txt
       - name: Install pinned standalone runtime
         run: |
           uv venv
@@ -63,14 +73,15 @@ jobs:
         variant: [cpu, cuda, rocm]
     steps:
       - uses: actions/checkout@v4
-        with:
-          repository: Sakura-Byte/hibiki-asr
-          ref: ${{ github.sha }}
       - name: Reserve disk for GPU image layers and private archives
+        if: matrix.variant != 'cpu'
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
-          docker system prune --all --force
           df -h /
+      - name: hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: docker/Dockerfile.${{ matrix.variant }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
@@ -78,20 +89,50 @@ jobs:
           file: docker/Dockerfile.${{ matrix.variant }}
           load: true
           tags: hibiki-asr:ci-${{ github.sha }}-${{ matrix.variant }}
-      - name: Smoke test image
+          cache-from: type=gha,scope=asr-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=asr-${{ matrix.variant }},ignore-error=true,timeout=3m
+      - name: The engine refuses to start without a token
+        run: |
+          if docker run --rm hibiki-asr:ci-${{ github.sha }}-${{ matrix.variant }}; then
+            echo "the container started without HIBIKI_ASR_TOKEN" >&2
+            exit 1
+          fi
+      - name: The engine becomes healthy
         run: |
           docker run -d --name engine -e HIBIKI_ASR_TOKEN=ci -p 8001:8001 hibiki-asr:ci-${{ github.sha }}-${{ matrix.variant }}
-          for _ in $(seq 1 60); do
+          for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8001/v1/healthz; then exit 0; fi
             sleep 2
           done
           docker logs engine
           exit 1
-      - name: Save image archive
+      - name: What the engine sees
+        run: docker exec engine hibiki-asr doctor
+      # The pinned decoder (PyAV) and faster-whisper must agree: a mismatch fails every job, and nothing else here
+      # would notice.
+      - name: The pinned runtime decodes audio
         run: |
-          docker save hibiki-asr:ci-${{ github.sha }}-${{ matrix.variant }} | gzip > hibiki-asr-${{ matrix.variant }}.docker.tar.gz
+          docker exec engine python -c "
+          import wave, numpy as np
+          from faster_whisper.audio import decode_audio
+          with wave.open('/tmp/tone.wav', 'wb') as w:
+              w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
+              w.writeframes((np.sin(np.arange(8000) / 5) * 8000).astype(np.int16).tobytes())
+          audio = decode_audio('/tmp/tone.wav', sampling_rate=16000)
+          assert audio.shape == (16000,) and abs(audio).max() > 0.1, audio.shape
+          print('decoded', audio.shape)
+          "
+      - name: Save image archive
+        if: github.event_name != 'pull_request'
+        run: |
+          if ! command -v pigz >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends pigz
+          fi
+          docker save hibiki-asr:ci-${{ github.sha }}-${{ matrix.variant }} | pigz -1 > hibiki-asr-${{ matrix.variant }}.docker.tar.gz
           sha256sum hibiki-asr-${{ matrix.variant }}.docker.tar.gz > hibiki-asr-${{ matrix.variant }}.docker.tar.gz.sha256
       - uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
         with:
           name: hibiki-asr-docker-${{ matrix.variant }}
           path: hibiki-asr-${{ matrix.variant }}.docker.tar.gz*
@@ -100,7 +141,8 @@ jobs:
           if-no-files-found: error
   publish:
     name: Publish validated public delivery
-    needs: [binary, docker]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [checks, binary, docker]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -108,15 +150,6 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Require the independent test CI to pass
-        run: |
-          for attempt in $(seq 1 120); do
-            conclusion=$(gh run list -R "$GITHUB_REPOSITORY" -w ci.yml --commit "$GITHUB_SHA" -L 1 --json status,conclusion --jq '.[0].conclusion // ""')
-            if [ "$conclusion" = success ]; then exit 0; fi
-            if [ -n "$conclusion" ]; then echo "Upstream tests: $conclusion"; exit 1; fi
-            sleep 10
-          done
-          echo "Timed out waiting for test CI"; exit 1
       - name: Prepare disk and download completed artifacts sequentially
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL

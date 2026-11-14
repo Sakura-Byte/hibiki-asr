@@ -33,12 +33,15 @@ ARG SETUP_ARGS=
 # uv installs the runtime (setup uses it when it is on PATH); it stays in this stage.
 RUN pip install --no-cache-dir uv==0.13.7
 WORKDIR /src
+# Native dependencies change far less often than application code. Keep this layer reusable.
+COPY src/hibiki_asr/provision/lockfiles ./lockfiles
+RUN uv venv /opt/venv \
+ && uv pip install --python /opt/venv/bin/python --require-hashes --no-deps -r "lockfiles/${HIBIKI_ASR_VARIANT}.txt"
 COPY pyproject.toml README.md ./
 COPY src ./src
-# `[runtime]` is the CPU baseline the API process needs to start (numpy); setup then installs the pinned runtime.
+# Install API dependencies, then use the same runtime provisioning/validation as a native install.
 # hadolint ignore=SC2086
-RUN uv venv /opt/venv \
- && uv pip install --python /opt/venv/bin/python ".[runtime]" \
+RUN uv pip install --python /opt/venv/bin/python . \
  && HIBIKI_ASR_DATA_DIR=/tmp/setup-state /opt/venv/bin/hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${SETUP_ARGS}
 
 # The tag is pinned in the ARG above, which hadolint cannot see.

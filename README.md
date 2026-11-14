@@ -341,3 +341,60 @@ they download the finished artifacts instead of rebuilding the engine.
 Docker archives over the GitHub Release per-file limit are split into numbered
 parts; concatenate them in order, then load the gzip archive with `docker load`.
 The Actions artifacts are temporary; the public release is the durable source.
+
+
+### 自适应音频并发
+
+引擎默认启用 adaptive parallel。每个任务使用独立 worker，取消或崩溃不会影响其它任务。
+启动新 worker 前读取空闲显存，并等待前一个任务完成首个转录分块，避免多个模型同时加载。
+显存不足时暂停扩容，已有任务继续；OOM 或降级到 CPU 后降低本次服务的并发上限（重新配置或重启后恢复）。
+
+在 `hibiki-asr.toml` 顶层配置（也支持对应的 `HIBIKI_ASR_*` 环境变量和运行时设置 API）：
+
+```toml
+adaptive_parallel = true
+max_parallel_jobs = 4
+parallel_vram_per_job_mb = 4096
+parallel_vram_reserve_mb = 1024
+parallel_probe_seconds = 2.0
+```
+
+`parallel_vram_per_job_mb` 是每个额外 worker 的保守预算，包含模型副本、VAD 和推理峰值，应按模型和精度调整。
+新任务仅在空闲显存不少于“预算 + 保留量”时并行启动；显存检测不是内存预留，外部程序仍可能抢占显存。
+至少允许一个任务尝试运行。NVIDIA 使用 `nvidia-smi`，Linux AMD 使用 amdgpu sysfs，多卡取最小空闲显存，不进行多 GPU 分配。
+**macOS Apple Silicon（MLX）同样支持自动并发**，`device = "auto"` 和 `device = "mlx"` 都可使用。
+通过独立探测进程读取 MLX 的总内存与 Metal 推荐工作集上限，并定期读取 `vm_stat` 的实际页大小、
+空闲页、非活跃页和推测页来估算可回收内存，不重复累加可清除页或压缩页。
+将系统已使用内存保守地计入 Metal 预算后，取剩余预算与系统可用内存的较小值，再应用上述每任务预算和保留量。
+这些预算在 Mac 上指统一内存，所有 worker 和其它应用共享；内存紧张时不再启动额外任务，余量恢复后自动扩容。
+MLX 硬件限额只缓存成功结果，实时内存不缓存；探测失败后保持串行并在下一次调度时重试。
+接口依据 [MLX Metal 文档](https://ml-explore.github.io/mlx/build/html/python/metal.html) 和
+[Apple 推荐工作集说明](https://developer.apple.com/documentation/metal/mtldevice/recommendedmaxworkingsetsize)。
+CPU（包括 Intel Mac）、MIG 和无法检测内存的设备自动保持串行。
+设置 `adaptive_parallel = false` 可使用固定并发上限；设置 `max_parallel_jobs = 1` 可强制串行。
+
+Hibiki 客户端还需要允许多个任务提交。在 Hibiki 的 `configs/config.yaml` 中配置：
+
+```yaml
+local_engine:
+  max_in_flight: 4
+  audio_download_retries: 3
+  audio_download_retry_delay_seconds: 1
+```
+
+`max_in_flight` 限制同时准备、上传及等待本地转录的音频数量，实际推理由引擎调度。
+音频下载默认首次尝试后最多重试 3 次（总共 4 次），设为 0 可禁用；间隔按重试次数线性增长，倍数最多为 10。
+每次重新解析源并获取新的流，失败的临时文件会被删除，等待重试时可立即取消。
+此下载配置也用于 Gemini 的音频准备；修改客户端 YAML 后重启 Hibiki。
+
+
+### 自动构建与交付
+
+推送 `main` 会触发 `Binary and Docker CI`：测试与三平台二进制、CPU/CUDA/ROCm 镜像构建并行进行，
+全部成功后发布 `build-<commit>` 预发布包。PR 也运行验证，但不发布、不生成巨型 Docker 离线归档。
+`ci.yml` 是被交付流程调用的检查工作流，仍可单独手动运行；正式 `v*` 标签发布流程保持独立。
+
+同一提交每种镜像只构建一次，并在归档前执行鉴权、健康检查、诊断和音频解码验证。
+uv 与 Docker BuildKit 缓存跨运行复用；Docker 的固定运行时依赖先于应用源码安装，避免代码修改令依赖层失效。
+镜像离线归档使用多核 `pigz -1` 压缩；同一分支的新提交取消旧构建，发布直接依赖检查结果，无需轮询另一条 CI。
+冷缓存、ROCm 基础镜像体积及 GitHub 文件传输仍会影响总耗时。

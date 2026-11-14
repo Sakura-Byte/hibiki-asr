@@ -1,17 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test:
@@ -31,6 +25,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install
         run: |
           uv venv
@@ -53,6 +49,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
       - name: Install
         run: |
           uv venv
@@ -74,62 +72,3 @@ jobs:
           for profile in cpu cuda rocm; do
             HIBIKI_ASR_TOKEN=ci docker compose -f docker/compose.example.yml --profile "$profile" config --quiet
           done
-
-  docker:
-    name: docker build (${{ matrix.tag }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - tag: cpu
-            dockerfile: docker/Dockerfile.cpu
-          - tag: cuda
-            dockerfile: docker/Dockerfile.cuda
-          - tag: rocm
-            dockerfile: docker/Dockerfile.rocm
-    steps:
-      - uses: actions/checkout@v4
-      - name: hadolint
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: ${{ matrix.dockerfile }}
-      - uses: docker/setup-buildx-action@v3
-      - name: Build (this runs `hibiki-asr setup` inside the image)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          load: true
-          tags: hibiki-asr:ci-${{ matrix.tag }}
-      - name: The engine refuses to start without a token
-        run: |
-          if docker run --rm hibiki-asr:ci-${{ matrix.tag }}; then
-            echo "the container started without HIBIKI_ASR_TOKEN" >&2
-            exit 1
-          fi
-      - name: The engine becomes healthy
-        run: |
-          docker run -d --name engine -e HIBIKI_ASR_TOKEN=ci -p 8001:8001 hibiki-asr:ci-${{ matrix.tag }}
-          for _ in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:8001/v1/healthz; then exit 0; fi
-            sleep 2
-          done
-          docker logs engine
-          exit 1
-      - name: What the engine sees
-        run: docker exec engine hibiki-asr doctor
-      # The pinned decoder (PyAV) and faster-whisper must agree: a mismatch fails every job, and nothing else here
-      # would notice.
-      - name: The pinned runtime decodes audio
-        run: |
-          docker exec engine python -c "
-          import wave, numpy as np
-          from faster_whisper.audio import decode_audio
-          with wave.open('/tmp/tone.wav', 'wb') as w:
-              w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)
-              w.writeframes((np.sin(np.arange(8000) / 5) * 8000).astype(np.int16).tobytes())
-          audio = decode_audio('/tmp/tone.wav', sampling_rate=16000)
-          assert audio.shape == (16000,) and abs(audio).max() > 0.1, audio.shape
-          print('decoded', audio.shape)
-          "

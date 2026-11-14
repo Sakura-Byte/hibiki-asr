@@ -26,14 +26,16 @@ RUN apt-get update \
 
 ENV PATH="/opt/venv/bin:${PATH}"
 WORKDIR /src
+COPY src/hibiki_asr/provision/lockfiles/cpu.txt ./lockfiles/cpu.txt
+RUN python3 -m venv /opt/venv \
+ && pip install --no-cache-dir uv==0.13.7 \
+ && uv pip install --python /opt/venv/bin/python --require-hashes --no-deps -r lockfiles/cpu.txt
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY LICENSE NOTICE /usr/share/doc/hibiki-asr/
 
 # hadolint ignore=SC2086
-RUN python3 -m venv /opt/venv \
- && pip install --no-cache-dir uv==0.13.7 \
- && uv pip install --python /opt/venv/bin/python ".[runtime]" \
+RUN uv pip install --python /opt/venv/bin/python . \
  && HIBIKI_ASR_DATA_DIR=/tmp/setup-state hibiki-asr setup --variant rocm-linux --yes --allow-experimental ${SETUP_ARGS}
 
 ENV HIBIKI_ASR_VARIANT=rocm-linux \

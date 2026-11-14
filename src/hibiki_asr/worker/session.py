@@ -49,7 +49,13 @@ class _Loaded:
     compute_type: str
 
 
-_OOM_MARKERS = ("out of memory", "cudaerrormemoryallocation", "hiperroroutofmemory")
+_OOM_MARKERS = (
+    "out of memory",
+    "cudaerrormemoryallocation",
+    "hiperroroutofmemory",
+    "kiogpucommandbuffercallbackerroroutofmemory",
+    "[metal] command buffer execution failed: insufficient memory",
+)
 
 
 def _looks_like_oom(text: str) -> bool:

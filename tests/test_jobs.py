@@ -129,7 +129,7 @@ class Harness:
         self.workers.append(worker)
         return worker
 
-    def submit(self, name: str = "a") -> str:
+    def submit(self, name: str = "a", variant: str = "cpu") -> str:
         job_dir = self.tmp / f"job-{name}"
         job_dir.mkdir(exist_ok=True)
         audio = job_dir / "audio.wav"
@@ -150,7 +150,7 @@ class Harness:
             components={"vad-asr": self.tmp / "vad", "whisper-base-fe": self.tmp / "fe"},
         )
         self.audio = audio
-        return self.jobs.submit(model, "translate", "ja", audio, variant="cpu").id
+        return self.jobs.submit(model, "translate", "ja", audio, variant=variant).id
 
     def wait(self, job_id: str, timeout: float = 5.0):
         status = self.jobs.wait(job_id, timeout)
@@ -474,3 +474,158 @@ def test_unknown_job(harness) -> None:
         h.jobs.get("nope")
     with pytest.raises(NotFound):
         h.jobs.cancel("nope")
+
+
+def test_adaptive_parallel_admits_only_when_memory_allows(harness):
+    release = threading.Event()
+
+    def gated(worker, req):
+        worker.emit(Progress("transcribing", 0.2, "working"))
+        release.wait(5)
+        worker.emit(result(req))
+
+    h = harness(gated, max_parallel_jobs=2, parallel_probe_seconds=0.1)
+    memory = {"free": 100}
+    h.jobs._memory_probe = lambda _: memory["free"]
+    first = h.submit("1", variant="cuda")
+    second = h.submit("2", variant="cuda")
+    third = h.submit("3", variant="cuda")
+    h.wait_until(lambda: h.jobs.get(first).progress > 0)
+    time.sleep(0.2)
+    assert h.jobs.get(second).state is JobState.queued
+    memory["free"] = 16000
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    assert h.jobs.get(third).state is JobState.queued
+    release.set()
+    assert all(h.wait(j).state is JobState.succeeded for j in (first, second, third))
+    assert len(h.workers) == 2
+
+
+def test_parallel_cancellation_kills_only_its_worker(harness):
+    h = harness(stubborn, cooperative, adaptive_parallel=False, max_parallel_jobs=2, cancel_grace_seconds=0.1)
+    first, second = h.submit("1"), h.submit("2")
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    h.jobs.cancel(first)
+    assert h.wait(first).state is JobState.cancelled
+    assert h.jobs.get(second).state is JobState.running
+    assert h.workers[0].killed and not h.workers[1].killed
+    h.jobs.cancel(second)
+    assert h.wait(second).state is JobState.cancelled
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        "CUDA out of memory",
+        "[METAL] Command buffer execution failed: Insufficient Memory",
+        "00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory",
+    ],
+)
+def test_oom_reduces_parallel_admission(harness, error):
+    release = threading.Event()
+
+    def oom(worker, req):
+        worker.emit(Progress("transcribing", 0.2, "working"))
+        release.wait(5)
+        worker.emit(RunFailed("INFERENCE_FAILED", error, "", []))
+
+    h = harness(oom, cooperative, parallel_probe_seconds=0.1)
+    h.jobs._memory_probe = lambda _: 16000
+    first, second = h.submit("1", variant="cuda"), h.submit("2", variant="cuda")
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    release.set()
+    assert h.wait(first).state is JobState.failed
+    third = h.submit("3", variant="cuda")
+    time.sleep(0.2)
+    assert h.jobs.get(third).state is JobState.queued
+    assert h.jobs._parallel_ceiling == 1
+    h.jobs.cancel(second)
+    h.jobs.cancel(third)
+
+
+def test_unknown_memory_remains_serial(harness):
+    h = harness(cooperative, parallel_probe_seconds=0.1)
+    h.jobs._memory_probe = lambda _: None
+    first, second = h.submit("1", variant="cuda"), h.submit("2", variant="cuda")
+    h.wait_until(lambda: h.jobs.get(first).progress > 0)
+    time.sleep(0.2)
+    assert h.jobs.get(second).state is JobState.queued
+    h.jobs.cancel(first)
+    h.jobs.cancel(second)
+
+
+def test_reconfigure_reduces_limit_without_interrupting_active_jobs(harness):
+    h = harness(cooperative, adaptive_parallel=False, max_parallel_jobs=2)
+    first, second = h.submit("1"), h.submit("2")
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    h.jobs.configure(h.settings.model_copy(update={"max_parallel_jobs": 1}))
+    third = h.submit("3")
+    time.sleep(0.2)
+    assert h.jobs.get(third).state is JobState.queued
+    assert all(h.jobs.get(j).state is JobState.running for j in (first, second))
+    h.jobs.stop()
+    assert all(h.jobs.get(j).state is JobState.cancelled for j in (first, second, third))
+    assert all(w.shut_down or w.killed for w in h.workers)
+
+
+@pytest.mark.parametrize("device", ["auto", "mlx"])
+def test_mac_adaptive_parallel_uses_live_unified_memory(harness, monkeypatch, device):
+    from hibiki_asr.diagnostics.system import SystemAccess
+    from hibiki_asr.jobs import memory
+
+    gib = 1024**3
+    available = {"gib": 10}
+
+    def run(command, timeout):
+        return 0, (
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+            f"Pages free: {available['gib'] * gib // 16384}.\n"
+            "Pages inactive: 0.\nPages speculative: 0.\n"
+        )
+
+    monkeypatch.setattr(
+        memory, "SystemAccess", lambda: SystemAccess(platform="darwin", machine="arm64", run=run)
+    )
+    monkeypatch.setattr(memory, "_mlx_memory_limits", lambda: (32 * gib, 24 * gib))
+    h = harness(cooperative, device=device, max_parallel_jobs=2, parallel_probe_seconds=0.1)
+    first, second = h.submit("1", variant="mlx"), h.submit("2", variant="mlx")
+    h.wait_until(lambda: h.jobs.get(first).progress > 0)
+    time.sleep(0.2)
+    assert h.jobs.get(second).state is JobState.queued
+    available["gib"] = 20
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    assert len(h.workers) == 2
+    h.jobs.cancel(first)
+    assert h.wait(first).state is JobState.cancelled
+    assert h.jobs.get(second).state is JobState.running
+    h.jobs.cancel(second)
+    assert h.wait(second).state is JobState.cancelled
+
+
+def test_transcribed_memory_error_words_do_not_change_admission(harness):
+    def spoken_words(worker, req):
+        worker.emit(dataclasses.replace(result(req), segments=[(0, 1000, "out of memory")]))
+
+    h = harness(spoken_words)
+    assert h.wait(h.submit()).state is JobState.succeeded
+    assert h.jobs._parallel_ceiling == h.settings.max_parallel_jobs
+
+
+def test_mac_native_crash_reduces_admission(harness):
+    release = threading.Event()
+
+    def native_abort(worker, req):
+        worker.emit(Progress("transcribing", 0.2, "working"))
+        release.wait(5)
+        worker.crash(-6)
+
+    h = harness(native_abort, cooperative, device="mlx", parallel_probe_seconds=0.1)
+    h.jobs._memory_probe = lambda _: 16000
+    first, second = h.submit("1", variant="mlx"), h.submit("2", variant="mlx")
+    h.wait_until(lambda: h.jobs.get(second).progress > 0)
+    release.set()
+    assert h.wait(first).state is JobState.failed
+    assert h.jobs._parallel_ceiling == 1
+    assert h.jobs.get(second).state is JobState.running
+    h.jobs.cancel(second)
+    assert h.wait(second).state is JobState.cancelled

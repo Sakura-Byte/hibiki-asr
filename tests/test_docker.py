@@ -49,7 +49,12 @@ def test_images_run_the_same_setup_as_a_bare_metal_install(tag: str) -> None:
     assert variant.installable and not variant.experimental  # a default that `setup` accepts without a flag
     assert 'hibiki-asr setup --variant "${HIBIKI_ASR_VARIANT}" --yes ${SETUP_ARGS}' in text
     assert 'HIBIKI_ASR_VARIANT="${HIBIKI_ASR_VARIANT}"' in text  # what the engine reads at run time
-    assert ".[runtime]" in text  # the API process needs numpy to start; setup pins the rest
+    assert '--require-hashes --no-deps -r "lockfiles/${HIBIKI_ASR_VARIANT}.txt"' in text
+    assert (
+        text.index("COPY src/hibiki_asr/provision/lockfiles")
+        < text.index("--require-hashes")
+        < text.index("COPY src ./src")
+    )
 
 
 def test_the_cuda_image_is_for_an_nvidia_variant_and_the_cpu_image_is_not() -> None:

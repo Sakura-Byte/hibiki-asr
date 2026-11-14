@@ -81,6 +81,14 @@ class RuntimeSettings(BaseModel):
     compute_type: str = "auto"
     allow_cpu_fallback: bool = True
 
+    adaptive_parallel: bool = True
+    max_parallel_jobs: int = Field(4, ge=1, le=32)
+    parallel_vram_per_job_mb: int = Field(
+        4096, ge=1, description="Conservative VRAM budget per worker, including model and inference."
+    )
+    parallel_vram_reserve_mb: int = Field(1024, ge=0)
+    parallel_probe_seconds: float = Field(2.0, ge=0.1, le=60)
+
     cpu_threads: int = Field(0, ge=0, description="Threads for CPU inference; 0 lets CTranslate2 choose.")
     idle_unload_seconds: int = Field(
         600, ge=0, description="Free the model (and VRAM) after this long without work; 0 = never."

@@ -11,6 +11,11 @@ def main() -> int:
     bundle = Path(__file__).with_name("bundle.json")
     variant = json.loads(bundle.read_text(encoding="utf-8"))["variant"]
     os.environ["HIBIKI_ASR_VARIANT"] = variant
+    if sys.argv[1:] == ["--mlx-memory-probe"]:
+        from .jobs.memory import print_mlx_memory_limits
+
+        print_mlx_memory_limits()
+        return 0
     if sys.argv[1:] == ["--runtime-probe"]:
         from .diagnostics.runtime import _MARKER, collect_runtime_facts
 
