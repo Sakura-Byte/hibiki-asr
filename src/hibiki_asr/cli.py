@@ -8,8 +8,10 @@ import logging
 import os
 import shutil
 import sys
-from collections.abc import Sequence
+import threading
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 from . import API_VERSION
 from .diagnostics.report import format_report
@@ -40,9 +42,17 @@ from .provision.service import (
 )
 from .provision.state import read_lockfile_sha256, read_variant, variant_from_env, write_variant
 from .provision.update import UpdateRefused, detect_source, plan_update, read_direct_url
-from .settings import Settings, config_file_path, load_settings, write_config_value
+from .settings import (
+    Settings,
+    config_file_path,
+    load_settings,
+    sync_runtime_setting,
+    write_config_value,
+)
 
 _SECRETS = ("token", "hf_token")
+_RESTART_EXIT_DELAY_SECONDS = 0.25
+_logger = logging.getLogger(__name__)
 
 # Commands that change the environment go through this, so tests can swap it and never install anything.
 command_runner: Runner = run_command
@@ -59,30 +69,117 @@ def _print_json(data: object) -> None:
 # -- serve -----------------------------------------------------------------------------------------------
 
 
+def _clean_restart_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Strip PyInstaller bootloader env vars so re-exec initializes a fresh bundle cleanly."""
+    source = os.environ if env is None else env
+    return {k: v for k, v in source.items() if not k.startswith(("_MEI", "_PYI_"))}
+
+
+def _can_execve_restart() -> bool:
+    return os.name != "nt"
+
+
+def _restart_exec_target(
+    argv: Sequence[str] | None = None,
+    executable: str | None = None,
+    *,
+    frozen: bool | None = None,
+) -> tuple[str, list[str]]:
+    raw_argv = list(sys.argv if argv is None else argv)
+    exe = sys.executable if executable is None else executable
+    is_frozen = getattr(sys, "frozen", False) if frozen is None else frozen
+    if is_frozen:
+        return exe, [exe, *raw_argv[1:]]
+    if raw_argv and raw_argv[0] and not raw_argv[0].endswith(".py") and not raw_argv[0].startswith("-"):
+        return raw_argv[0], raw_argv
+    return exe, [exe, "-m", "hibiki_asr.cli", *raw_argv[1:]]
+
+
+class _RestartTrigger:
+    def __init__(self, delay_seconds: float = _RESTART_EXIT_DELAY_SECONDS) -> None:
+        self.requested = threading.Event()
+        self._lock = threading.Lock()
+        self._delay = delay_seconds
+        self.server: Any = None
+
+    def _exit_server(self) -> None:
+        if self.server is not None:
+            self.server.should_exit = True
+
+    def schedule(self) -> None:
+        with self._lock:
+            if self.requested.is_set():
+                return
+            self.requested.set()
+        timer = threading.Timer(self._delay, self._exit_server)
+        timer.daemon = True
+        timer.start()
+
+
 def cmd_serve(args: argparse.Namespace, settings: Settings) -> int:
     import uvicorn
 
     from .api.app import create_app
 
-    try:
-        settings.validate_for_serving()
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+    overrides = {k: getattr(args, k, None) for k in ("host", "port")}
+    config_path = getattr(args, "config", None)
+    current_settings = settings
 
-    engine = Engine(settings)
-    where = f"http://{'127.0.0.1' if settings.host in ('0.0.0.0', '::') else settings.host}:{settings.port}"
-    print(f"hibiki-asr {engine_version()} listening on {settings.host}:{settings.port}", file=sys.stderr)
-    print(
-        f"  connect Hibiki to: {where}"
-        + (f"   token: {settings.token}" if settings.token else "   (no token needed on loopback)"),
-        file=sys.stderr,
-    )
-    print(f"  models: {settings.resolved_models_dir}", file=sys.stderr)
-    uvicorn.run(
-        create_app(engine), host=settings.host, port=settings.port, log_level=settings.log_level.lower()
-    )
-    return 0
+    while True:
+        try:
+            current_settings.validate_for_serving()
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        engine = Engine(current_settings)
+        host_for_url = "127.0.0.1" if current_settings.host in ("0.0.0.0", "::") else current_settings.host
+        where = f"http://{host_for_url}:{current_settings.port}"
+        print(
+            f"hibiki-asr {engine_version()} listening on {current_settings.host}:{current_settings.port}",
+            file=sys.stderr,
+        )
+        print(
+            f"  connect Hibiki to: {where}"
+            + (
+                f"   token: {current_settings.token}"
+                if current_settings.token
+                else "   (no token needed on loopback)"
+            ),
+            file=sys.stderr,
+        )
+        print(f"  models: {current_settings.resolved_models_dir}", file=sys.stderr)
+
+        trigger = _RestartTrigger()
+        config = uvicorn.Config(
+            create_app(engine, on_restart=trigger.schedule),
+            host=current_settings.host,
+            port=current_settings.port,
+            log_level=current_settings.log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        trigger.server = server
+        try:
+            server.run()
+        finally:
+            engine.shutdown()
+
+        if not trigger.requested.is_set():
+            return 0
+
+        if _can_execve_restart():
+            exe, argv = _restart_exec_target()
+            clean_env = _clean_restart_env()
+            try:
+                os.execve(exe, argv, clean_env)
+            except OSError as exc:
+                _logger.warning("execve restart failed (%s); falling back to in-process reload", exc)
+
+        try:
+            current_settings = load_settings(overrides=overrides, config_path=config_path)
+        except ValueError as exc:
+            print(f"error: invalid settings: {exc}", file=sys.stderr)
+            return 2
 
 
 # -- doctor ----------------------------------------------------------------------------------------------
@@ -250,7 +347,7 @@ def cmd_service(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def cmd_config(args: argparse.Namespace, settings: Settings) -> int:
-    path = config_file_path()
+    path = getattr(args, "config", None) or config_file_path()
     if args.action == "path":
         print(path)
     elif args.action == "show":
@@ -269,7 +366,8 @@ def cmd_config(args: argparse.Namespace, settings: Settings) -> int:
             )
             return 2
         try:
-            write_config_value(path, args.key, args.value)
+            validated = write_config_value(path, args.key, args.value)
+            sync_runtime_setting(settings.data_dir, args.key, validated)
         except ValueError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2

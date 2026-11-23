@@ -39,6 +39,9 @@ def test_the_contract_clients_rely_on() -> None:
         ("GET", "/v1/healthz"),
         ("GET", "/v1/version"),
         ("GET", "/v1/diagnostics"),
+        ("GET", "/v1/settings"),
+        ("PATCH", "/v1/settings"),
+        ("POST", "/v1/restart"),
         ("GET", "/v1/models"),
         ("GET", "/v1/models/sources"),
         ("POST", "/v1/models/sources/probe"),
@@ -67,3 +70,4 @@ def test_the_contract_clients_rely_on() -> None:
         schemas["SourcesResponse"]["properties"]
     )
     assert {"code", "severity", "message", "hint"} == set(schemas["Finding"]["properties"])
+    assert {"status", "message"} == set(schemas["RestartResponse"]["properties"])

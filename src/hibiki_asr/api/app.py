@@ -8,7 +8,7 @@ import secrets
 import shutil
 import threading
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
@@ -35,7 +35,7 @@ from ..models.schema import (
     VerifyResult,
 )
 from ..settings import RuntimeSettings
-from .schema import ErrorResponse, Health, VersionInfo
+from .schema import ErrorResponse, Health, RestartResponse, VersionInfo
 
 CAPABILITIES = [
     "jobs",
@@ -43,6 +43,8 @@ CAPABILITIES = [
     "job-upload",
     "diagnostics",
     "runtime-settings",
+    "settings-persistence",
+    "restart",
     "models",
     "model-versions",
     "model-download",
@@ -65,8 +67,10 @@ def _error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
 
 
-def create_app(engine: Engine) -> FastAPI:
+def create_app(engine: Engine, *, on_restart: Callable[[], None] | None = None) -> FastAPI:
     settings = engine.settings
+    restart_lock = threading.Lock()
+    restart_triggered = False
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -181,11 +185,38 @@ def create_app(engine: Engine) -> FastAPI:
         summary="Change defaults for future jobs without restarting",
         description=(
             "Only supplied fields change. VAD and merge fields are merged; generation replaces the whole map "
-            "(use {} to reset it). Submitted jobs retain their settings. Changes last until the service restarts."
+            "(use {} to reset it). Submitted jobs retain their settings. Changes are persisted to "
+            "`<data_dir>/runtime-settings.json` and survive restarts."
         ),
     )
     def update_runtime_settings(patch: RuntimeSettings) -> RuntimeSettings:
         return engine.update_runtime_settings(patch)
+
+    @app.post(
+        "/v1/restart",
+        tags=["meta"],
+        status_code=202,
+        response_model=RestartResponse,
+        dependencies=protected,
+        summary="Schedule a graceful engine restart",
+        responses={503: {"model": ErrorResponse, "description": "Restart unavailable outside serve mode."}},
+    )
+    def restart_engine() -> RestartResponse | Response:
+        nonlocal restart_triggered
+        if on_restart is None:
+            return _error(
+                503,
+                "RESTART_UNAVAILABLE",
+                "restart is only supported when running under hibiki-asr serve",
+            )
+        should_trigger = False
+        with restart_lock:
+            if not restart_triggered:
+                restart_triggered = True
+                should_trigger = True
+        if should_trigger:
+            on_restart()
+        return RestartResponse(status="restarting", message="Engine restart scheduled")
 
     # -- models -----------------------------------------------------------------------------------
 

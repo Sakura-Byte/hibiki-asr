@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from hibiki_asr.settings import (
+    RuntimeSettings,
     Settings,
     config_file_path,
     default_config_dir,
     default_data_dir,
     load_settings,
+    runtime_settings_path,
+    save_runtime_settings,
+    sync_runtime_setting,
     write_config_value,
 )
 
@@ -190,3 +195,87 @@ def test_generation_values_are_parsed_as_json(tmp_path: Path) -> None:
     write_config_value(path, "generation.initial_prompt", "こんにちは")
     s = load(path=path)
     assert s.generation == {"beam_size": 5, "temperature": [0.0, 0.2], "initial_prompt": "こんにちは"}
+
+
+# --- persistent runtime settings --------------------------------------------------------------------
+
+
+def test_save_runtime_settings_excludes_secrets_and_infra(tmp_path: Path) -> None:
+    full = Settings(data_dir=tmp_path, host="0.0.0.0", port=9001, token="secret", hf_token="hf", device="cpu")
+    written = save_runtime_settings(tmp_path, full)
+    assert written == runtime_settings_path(tmp_path)
+    payload = json.loads(written.read_text(encoding="utf-8"))
+    assert set(payload) == set(RuntimeSettings.model_fields)
+    for forbidden in ("token", "hf_token", "host", "port", "data_dir", "models_dir"):
+        assert forbidden not in payload
+    assert payload["device"] == "cpu"
+
+
+def test_runtime_settings_file_precedence_over_toml_and_env(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    config = tmp_path / "hibiki-asr.toml"
+    config.write_text(
+        f'data_dir = "{data_dir.as_posix()}"\n'
+        'port = 9001\n'
+        'device = "cpu"\n'
+        '[vad]\n'
+        'threshold = 0.3\n'
+        'speech_pad_ms = 50\n'
+        '[generation]\n'
+        'beam_size = 5\n',
+        encoding="utf-8",
+    )
+    runtime_settings_path(data_dir).parent.mkdir(parents=True, exist_ok=True)
+    runtime_settings_path(data_dir).write_text(
+        json.dumps({"device": "auto", "vad": {"threshold": 0.45}, "generation": {}}),
+        encoding="utf-8",
+    )
+
+    s = load_settings(
+        env={"HIBIKI_ASR_DEVICE": "cuda", "HIBIKI_ASR_TOKEN": "tok"},
+        overrides={"port": 9100},
+        config_path=config,
+    )
+    assert s.device == "auto"  # runtime-settings.json beats TOML + env
+    assert (s.vad.threshold, s.vad.speech_pad_ms) == (0.45, 50)  # deep-merged with TOML
+    assert s.generation == {}  # cleared map in runtime-settings.json replaces TOML generation
+    assert (s.port, s.token, s.data_dir) == (9100, "tok", data_dir)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{not valid json",
+        "[1, 2, 3]",
+        json.dumps({"token": "hijack"}),
+        json.dumps({"host": "0.0.0.0"}),
+        json.dumps({"data_dir": "/tmp/elsewhere"}),
+        json.dumps({"unknown_field": True}),
+        json.dumps({"vad": {"threshold": 9.0}}),
+    ],
+)
+def test_invalid_or_non_runtime_settings_file_raises_naming_path(tmp_path: Path, content: str) -> None:
+    data_dir = tmp_path / "data"
+    rt_path = runtime_settings_path(data_dir)
+    rt_path.parent.mkdir(parents=True, exist_ok=True)
+    rt_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="runtime-settings\\.json"):
+        load_settings(env={"HIBIKI_ASR_DATA_DIR": str(data_dir)}, config_path=NO_FILE)
+
+
+def test_sync_runtime_setting_updates_only_existing_file_and_runtime_keys(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    config = tmp_path / "hibiki-asr.toml"
+    validated = write_config_value(config, "device", "cpu")
+    assert sync_runtime_setting(data_dir, "device", validated) is False
+    assert not runtime_settings_path(data_dir).exists()
+
+    save_runtime_settings(data_dir, RuntimeSettings(device="auto"))
+    validated = write_config_value(config, "device", "cuda")
+    assert sync_runtime_setting(data_dir, "device", validated) is True
+    assert load_settings(env={"HIBIKI_ASR_DATA_DIR": str(data_dir)}, config_path=config).device == "cuda"
+
+    validated = write_config_value(config, "hf_endpoint", "https://hf-mirror.com")
+    assert sync_runtime_setting(data_dir, "hf_endpoint", validated) is False
+    assert "hf_endpoint" not in json.loads(runtime_settings_path(data_dir).read_text(encoding="utf-8"))

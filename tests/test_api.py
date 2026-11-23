@@ -15,6 +15,7 @@ from hibiki_asr import API_VERSION
 from hibiki_asr.api.app import CAPABILITIES, create_app
 from hibiki_asr.engine import Engine
 from hibiki_asr.jobs.manager import JobManager
+from hibiki_asr.settings import load_settings, runtime_settings_path
 from hibiki_asr.worker.protocol import Progress, RunFailed
 from test_jobs import FakeWorker, cooperative, ok, result, stubborn
 from test_models import World
@@ -134,6 +135,7 @@ def test_every_other_route_requires_the_token(api, headers, status, code) -> Non
         a.client.patch("/v1/settings", json={"allow_cpu_fallback": False}, headers=headers).status_code
         == status
     )
+    assert a.client.post("/v1/restart", headers=headers).status_code == status
 
 
 def test_without_a_configured_token_the_engine_is_open(api) -> None:
@@ -530,3 +532,69 @@ def test_unknown_jobs_are_404(api) -> None:
     a = api()
     assert a.get("/v1/jobs/nope").json()["error"]["code"] == "JOB_NOT_FOUND"
     assert a.delete("/v1/jobs/nope").status_code == 404
+
+
+def test_runtime_settings_persist_across_restarts_and_rollback_on_save_error(api, tmp_path: Path, monkeypatch) -> None:
+    a = api(vad={"threshold": 0.7, "threads": 3}, generation={"beam_size": 5})
+    data_dir = a.engine.settings.data_dir
+
+    resp = a.patch(
+        "/v1/settings",
+        json={"device": "cpu", "vad": {"threshold": 0.4}, "generation": {"temperature": 0}},
+    )
+    assert resp.status_code == 200
+    rt_file = runtime_settings_path(data_dir)
+    assert rt_file.exists()
+    assert "token" not in json.loads(rt_file.read_text(encoding="utf-8"))
+
+    reloaded = load_settings(env={"HIBIKI_ASR_DATA_DIR": str(data_dir)}, config_path=tmp_path / "missing.toml")
+    assert reloaded.device == "cpu"
+    assert (reloaded.vad.threshold, reloaded.vad.threads) == (0.4, 3)
+    assert reloaded.generation == {"temperature": 0}
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("hibiki_asr.engine.save_runtime_settings", fail_save)
+    with pytest.raises(OSError, match="disk full"):
+        from hibiki_asr.settings import RuntimeSettings
+
+        a.engine.update_runtime_settings(RuntimeSettings(device="cuda"))
+    assert a.engine.runtime_settings().device == "cpu"
+
+
+def test_restart_endpoint_requires_serve_mode_and_is_idempotent(tmp_path: Path) -> None:
+    from test_models import World
+
+    world = World(tmp_path / "unbound", token=None)
+    unbound_engine = Engine(world.settings, models=world.manager, jobs=JobManager(world.settings, FakeWorker))
+    try:
+        unbound = TestClient(create_app(unbound_engine))
+        res = unbound.post("/v1/restart")
+        assert res.status_code == 503 and res.json()["error"]["code"] == "RESTART_UNAVAILABLE"
+    finally:
+        unbound_engine.shutdown()
+
+    calls = 0
+
+    def trigger() -> None:
+        nonlocal calls
+        calls += 1
+
+    bound_engine = Engine(
+        World(tmp_path / "bound", token=TOKEN).settings,
+        models=World(tmp_path / "bound2", token=TOKEN).manager,
+        jobs=JobManager(World(tmp_path / "bound", token=TOKEN).settings, FakeWorker),
+    )
+    try:
+        bound = TestClient(create_app(bound_engine, on_restart=trigger))
+        first = bound.post("/v1/restart", headers=AUTH)
+        second = bound.post("/v1/restart", headers=AUTH)
+        assert first.status_code == 202 and first.json() == {
+            "status": "restarting",
+            "message": "Engine restart scheduled",
+        }
+        assert second.status_code == 202 and second.json() == first.json()
+        assert calls == 1
+    finally:
+        bound_engine.shutdown()

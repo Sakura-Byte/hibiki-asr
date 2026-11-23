@@ -12,6 +12,8 @@
       "job-upload",
       "diagnostics",
       "runtime-settings",
+      "settings-persistence",
+      "restart",
       "models",
       "model-versions",
       "model-download",
@@ -372,7 +374,7 @@
           "settings"
         ],
         "summary": "Change defaults for future jobs without restarting",
-        "description": "Only supplied fields change. VAD and merge fields are merged; generation replaces the whole map (use {} to reset it). Submitted jobs retain their settings. Changes last until the service restarts.",
+        "description": "Only supplied fields change. VAD and merge fields are merged; generation replaces the whole map (use {} to reset it). Submitted jobs retain their settings. Changes are persisted to `<data_dir>/runtime-settings.json` and survive restarts.",
         "operationId": "update_runtime_settings_v1_settings_patch",
         "parameters": [
           {
@@ -462,6 +464,105 @@
               }
             },
             "description": "Unprocessable Entity"
+          }
+        }
+      }
+    },
+    "/v1/restart": {
+      "post": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Schedule a graceful engine restart",
+        "operationId": "restart_engine_v1_restart_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or malformed Authorization header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Wrong token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Restart unavailable outside serve mode.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -2848,6 +2949,25 @@
           "installed"
         ],
         "title": "RequirementInfo"
+      },
+      "RestartResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "restarting",
+            "title": "Status",
+            "default": "restarting"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "RestartResponse"
       },
       "RuntimeFacts": {
         "properties": {

@@ -28,3 +28,8 @@ class ErrorBody(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorBody
+
+
+class RestartResponse(BaseModel):
+    status: Literal["restarting"] = "restarting"
+    message: str

@@ -1,4 +1,4 @@
-"""Engine settings: defaults < config file < HIBIKI_ASR_* environment < command line.
+"""Engine settings: defaults < config file < HIBIKI_ASR_* environment < runtime-settings.json < command line.
 
 Hardware and performance policy lives here, not in the client. The machine that
 runs the engine is the one that knows its GPU, so it decides the device.
@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from .provision.state import ENV_VARIANT
 
@@ -211,6 +213,55 @@ def config_file_path(env: Mapping[str, str] | None = None) -> Path:
     )
 
 
+def runtime_settings_path(data_dir: Path) -> Path:
+    return data_dir / "runtime-settings.json"
+
+
+def _write_runtime_settings_json(data_dir: Path, payload: Mapping[str, Any]) -> Path:
+    data_dir.mkdir(parents=True, exist_ok=True)
+    target = runtime_settings_path(data_dir)
+    encoded = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    fd, tmp_name = tempfile.mkstemp(prefix=".runtime-settings.", suffix=".tmp", dir=data_dir)
+    tmp_path = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        with suppress(OSError):
+            tmp_path.unlink()
+        raise
+    return target
+
+
+def save_runtime_settings(data_dir: Path, settings: RuntimeSettings) -> Path:
+    """Persist only ``RuntimeSettings`` fields atomically to ``<data_dir>/runtime-settings.json``."""
+    runtime = RuntimeSettings.model_validate(
+        settings.model_dump(include=set(RuntimeSettings.model_fields))
+    )
+    return _write_runtime_settings_json(data_dir, runtime.model_dump(mode="json"))
+
+
+def _read_runtime_settings_file(path: Path) -> dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"{path}: invalid JSON: {exc}") from exc
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: invalid runtime settings: expected a JSON object")
+    try:
+        validated = RuntimeSettings.model_validate(raw)
+    except ValidationError as exc:
+        raise ValueError(f"{path}: invalid runtime settings: {exc}") from exc
+    return validated.model_dump(mode="json", exclude_unset=True)
+
+
 def load_settings(
     env: Mapping[str, str] | None = None,
     overrides: Mapping[str, Any] | None = None,
@@ -218,9 +269,18 @@ def load_settings(
 ) -> Settings:
     """Layer the sources. ``overrides`` are command line values and win over everything."""
     env = os.environ if env is None else env
-    merged = _read_config_file(config_path or config_file_path(env))
-    merged = _deep_merge(merged, _env_overrides(env))
-    merged = _deep_merge(merged, {k: v for k, v in (overrides or {}).items() if v is not None})
+    cli_overrides = {k: v for k, v in (overrides or {}).items() if v is not None}
+    base = _read_config_file(config_path or config_file_path(env))
+    base = _deep_merge(base, _env_overrides(env))
+    preliminary = Settings.model_validate(_deep_merge(base, cli_overrides))
+
+    runtime = _read_runtime_settings_file(runtime_settings_path(preliminary.data_dir))
+    if not runtime:
+        return preliminary
+    merged = _deep_merge(base, runtime)
+    if "generation" in runtime:
+        merged["generation"] = dict(runtime["generation"])
+    merged = _deep_merge(merged, cli_overrides)
     return Settings.model_validate(merged)
 
 
@@ -276,3 +336,28 @@ def write_config_value(path: Path, dotted_key: str, raw_value: str) -> Settings:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return validated
+
+
+def sync_runtime_setting(data_dir: Path, dotted_key: str, validated: Settings) -> bool:
+    """Update ``dotted_key`` in ``runtime-settings.json`` when it already exists and holds a runtime key."""
+    section, _, leaf = dotted_key.rpartition(".")
+    top_key = section or leaf
+    if top_key not in RuntimeSettings.model_fields:
+        return False
+    path = runtime_settings_path(data_dir)
+    if not path.exists():
+        return False
+    current = _read_runtime_settings_file(path)
+    typed: Any = validated.model_dump(mode="json")
+    for part in dotted_key.split("."):
+        typed = typed[part]
+    if section:
+        existing_section = current.get(section)
+        next_section = dict(existing_section) if isinstance(existing_section, dict) else {}
+        next_section[leaf] = typed
+        current[section] = next_section
+    else:
+        current[leaf] = typed
+    RuntimeSettings.model_validate(current)
+    _write_runtime_settings_json(data_dir, current)
+    return True

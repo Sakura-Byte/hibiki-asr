@@ -135,9 +135,112 @@ def test_serve_starts_uvicorn_with_the_engine_app(env, capsys, monkeypatch) -> N
     import uvicorn
 
     started: dict = {}
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: started.update(app=app, **kw))
+
+    class FakeServer:
+        def __init__(self, config) -> None:
+            started["app"] = config.app
+            started["host"] = config.host
+            started["port"] = config.port
+            started["log_level"] = config.log_level
+            self.should_exit = False
+
+        def run(self) -> None:
+            started["ran"] = True
+
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
     monkeypatch.setenv("HIBIKI_ASR_TOKEN", "abc")
     code, _, err = run(capsys, "serve", "--host", "0.0.0.0", "--port", "9123")
-    assert code == 0 and (started["host"], started["port"]) == ("0.0.0.0", 9123)
+    assert code == 0 and started["ran"] is True
+    assert (started["host"], started["port"]) == ("0.0.0.0", 9123)
     assert "http://127.0.0.1:9123" in err and "token: abc" in err
     assert started["app"].title == "hibiki-asr"
+
+
+def test_clean_restart_env_and_exec_target() -> None:
+    cleaned = cli._clean_restart_env(
+        {
+            "PATH": "/usr/bin",
+            "HIBIKI_ASR_TOKEN": "tok",
+            "_MEIPASS": "/tmp/_MEI123",
+            "_MEIPASS2": "/tmp/_MEI456",
+            "_PYI_APPLICATION_HOME_DIR": "/opt/hibiki",
+        }
+    )
+    assert cleaned == {"PATH": "/usr/bin", "HIBIKI_ASR_TOKEN": "tok"}
+
+    assert cli._restart_exec_target(
+        ["ignored.py", "serve", "--port", "8001"], executable="/opt/hibiki-asr", frozen=True
+    ) == ("/opt/hibiki-asr", ["/opt/hibiki-asr", "serve", "--port", "8001"])
+    assert cli._restart_exec_target(
+        ["/usr/local/bin/hibiki-asr", "serve"], executable="/usr/bin/python3", frozen=False
+    ) == ("/usr/local/bin/hibiki-asr", ["/usr/local/bin/hibiki-asr", "serve"])
+    assert cli._restart_exec_target(
+        ["src/hibiki_asr/cli.py", "serve"], executable="/usr/bin/python3", frozen=False
+    ) == ("/usr/bin/python3", ["/usr/bin/python3", "-m", "hibiki_asr.cli", "serve"])
+
+
+def test_serve_restart_reloads_persisted_settings_and_execve_fallback(env, capsys, monkeypatch) -> None:
+    import time
+
+    import uvicorn
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(cli, "_RESTART_EXIT_DELAY_SECONDS", 0.01)
+    monkeypatch.setattr(cli, "_can_execve_restart", lambda: False)
+    seen_devices: list[str] = []
+
+    class FakeServer:
+        def __init__(self, config) -> None:
+            self.app = config.app
+            self.should_exit = False
+
+        def run(self) -> None:
+            client = TestClient(self.app)
+            seen_devices.append(client.get("/v1/settings").json()["device"])
+            if len(seen_devices) == 1:
+                assert client.patch("/v1/settings", json={"device": "cpu"}).status_code == 200
+                assert client.post("/v1/restart").status_code == 202
+                deadline = time.monotonic() + 2.0
+                while not self.should_exit and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert self.should_exit is True
+
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    code, _, _ = run(capsys, "serve")
+    assert code == 0 and seen_devices == ["auto", "cpu"]
+
+    # When POSIX execve raises OSError, cmd_serve falls back to reloading in-process.
+    exec_calls: list[tuple[str, list[str], dict[str, str]]] = []
+    seen_devices.clear()
+
+    def failing_execve(exe: str, argv: list[str], clean_env: dict[str, str]) -> None:
+        exec_calls.append((exe, argv, clean_env))
+        raise OSError("cannot exec")
+
+    monkeypatch.setenv("_MEIPASS", "/tmp/_MEI99")
+    monkeypatch.setattr(cli, "_can_execve_restart", lambda: True)
+    monkeypatch.setattr(cli.os, "execve", failing_execve)
+    code, _, _ = run(capsys, "serve")
+    assert code == 0 and len(exec_calls) == 1 and "_MEIPASS" not in exec_calls[0][2]
+    assert seen_devices == ["cpu", "cpu"]
+
+
+def test_config_set_syncs_existing_runtime_settings(env, capsys) -> None:
+    from hibiki_asr.settings import RuntimeSettings, runtime_settings_path, save_runtime_settings
+
+    # Without runtime-settings.json, config set only touches TOML.
+    code, _, _ = run(capsys, "config", "set", "device", "cpu")
+    assert code == 0 and not runtime_settings_path(env.settings.data_dir).exists()
+
+    # Once runtime-settings.json exists, config set keeps runtime keys in sync.
+    save_runtime_settings(env.settings.data_dir, RuntimeSettings(device="auto"))
+    assert run(capsys, "config", "set", "device", "cuda")[0] == 0
+    assert run(capsys, "config", "set", "vad.threshold", "0.35")[0] == 0
+    assert run(capsys, "config", "set", "generation.beam_size", "6")[0] == 0
+    assert run(capsys, "config", "set", "hf_endpoint", "https://hf-mirror.com")[0] == 0
+
+    stored = json.loads(runtime_settings_path(env.settings.data_dir).read_text(encoding="utf-8"))
+    assert stored["device"] == "cuda"
+    assert stored["vad"]["threshold"] == 0.35
+    assert stored["generation"]["beam_size"] == 6
+    assert "hf_endpoint" not in stored
